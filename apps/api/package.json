@@ -6,10 +6,10 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/server.ts",
-    "build": "tsc && tsc-alias",
+    "build": "prisma generate && tsc && tsc-alias",
     "start": "node dist/server.js",
     "lint": "eslint .",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "prisma generate && tsc --noEmit",
     "clean": "rm -rf dist node_modules",
     "db:generate": "prisma generate",
     "db:push": "prisma db push",
