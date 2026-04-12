@@ -11,12 +11,11 @@ let redisClient: Redis | null = null;
 export function getRedis(): Redis | null {
   if (redisClient) return redisClient;
 
-  const restUrl = env.UPSTASH_REDIS_REST_URL;
-  const token = env.UPSTASH_REDIS_REST_TOKEN;
+  const redisUrl = env.REDIS_URL;
 
-  if (!restUrl || !token) return null;
+  if (!redisUrl) return null;
 
-  redisClient = globalThis.__redis ?? new Redis(restUrl, { password: token, tls: {} });
+  redisClient = globalThis.__redis ?? new Redis(redisUrl);
 
   if (process.env.NODE_ENV === "development") {
     globalThis.__redis = redisClient;

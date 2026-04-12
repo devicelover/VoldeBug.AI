@@ -13,6 +13,7 @@ const envSchema = z.object({
   MICROSOFT_CLIENT_SECRET: z.string().optional(),
   UPSTASH_REDIS_REST_URL: z.string().url().optional(),
   UPSTASH_REDIS_REST_TOKEN: z.string().optional(),
+  REDIS_URL: z.string().url().optional(),
   RESEND_API_KEY: z.string().optional(),
 });
 
