@@ -43,6 +43,7 @@
     "@voldebug/config": "workspace:*",
     "@voldebug/types": "workspace:*",
     "prisma": "^6.2.0",
+    "tsc-alias": "^1.8.16",
     "tsx": "^4.19.0",
     "typescript": "^5.7.0"
   },
