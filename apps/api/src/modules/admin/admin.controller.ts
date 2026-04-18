@@ -1,6 +1,7 @@
 import type { Request, Response } from "express";
 import { prisma } from "../../utils/prisma.js";
 import { apiSuccess, apiError } from "../../utils/api.js";
+import { getSchoolOverview, getAuditLogs } from "./admin.service.js";
 
 export async function handleGetSchool(req: Request, res: Response) {
   const userId = req.userId!;
@@ -188,5 +189,47 @@ export async function handleDeleteClass(req: Request, res: Response) {
     return apiSuccess(res, { success: true });
   } catch {
     return apiError(res, { code: "INTERNAL_ERROR", message: "Failed to delete class", status: 500 });
+  }
+}
+
+// ─── Principal Dashboard: School Overview ─────────────────────────────────
+
+export async function handleGetSchoolOverview(req: Request, res: Response) {
+  const userId = req.userId!;
+
+  try {
+    const overview = await getSchoolOverview(userId);
+
+    if (!overview) {
+      return apiError(res, { code: "NOT_FOUND", message: "No school found for this admin", status: 404 });
+    }
+
+    return apiSuccess(res, overview);
+  } catch {
+    return apiError(res, { code: "INTERNAL_ERROR", message: "Failed to fetch school overview", status: 500 });
+  }
+}
+
+// ─── Principal Dashboard: Audit Logs ──────────────────────────────────────
+
+export async function handleGetAuditLogs(req: Request, res: Response) {
+  const { limit = 20, offset = 0, flagged, studentId, tool } = req.query;
+
+  try {
+    const filters: { isFlagged?: boolean; studentId?: string; toolUsed?: string } = {};
+    if (flagged === "true") filters.isFlagged = true;
+    if (flagged === "false") filters.isFlagged = false;
+    if (studentId && typeof studentId === "string") filters.studentId = studentId;
+    if (tool && typeof tool === "string") filters.toolUsed = tool;
+
+    const result = await getAuditLogs(Number(limit), Number(offset), filters);
+
+    return apiSuccess(res, result, 200, {
+      page: Math.floor(Number(offset) / Number(limit)) + 1,
+      limit: Number(limit),
+      total: result.total,
+    });
+  } catch {
+    return apiError(res, { code: "INTERNAL_ERROR", message: "Failed to fetch audit logs", status: 500 });
   }
 }

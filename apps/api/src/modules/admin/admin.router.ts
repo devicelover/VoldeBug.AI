@@ -8,6 +8,8 @@ import {
   handleListClasses,
   handleUpdateClass,
   handleDeleteClass,
+  handleGetSchoolOverview,
+  handleGetAuditLogs,
 } from "./admin.controller.js";
 
 const adminRouter = express.Router();
@@ -26,5 +28,9 @@ adminRouter.patch("/users/:id/role", handleUpdateUserRole);
 adminRouter.get("/classes", handleListClasses);
 adminRouter.patch("/classes/:id", handleUpdateClass);
 adminRouter.delete("/classes/:id", handleDeleteClass);
+
+// Principal Dashboard
+adminRouter.get("/overview", handleGetSchoolOverview);
+adminRouter.get("/audit-logs", handleGetAuditLogs);
 
 export { adminRouter };

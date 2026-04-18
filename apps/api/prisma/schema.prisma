@@ -107,6 +107,7 @@ model User {
   dailyChallenges  DailyChallenge[]
   notifications    Notification[]
   streak           Streak?
+  auditLogs        AuditLog[]
   lastActiveAt     DateTime           @default(now())
   createdAt        DateTime           @default(now())
   updatedAt        DateTime           @updatedAt
@@ -350,4 +351,22 @@ model Notification {
   @@index([read])
   @@index([userId, read, createdAt])
   @@map("notifications")
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  studentId  String
+  student    User     @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  promptText String   @db.Text
+  aiResponse String   @db.Text
+  toolUsed   String
+  isFlagged  Boolean  @default(false)
+  timestamp  DateTime @default(now())
+  createdAt  DateTime @default(now())
+
+  @@index([studentId])
+  @@index([isFlagged])
+  @@index([timestamp])
+  @@index([studentId, timestamp])
+  @@map("audit_logs")
 }
