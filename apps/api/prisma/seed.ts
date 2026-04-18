@@ -196,11 +196,79 @@ async function main() {
         data: {
           userId: s.id,
           badgeId: badges[0]!.id,
-          progress: 1
+          progressCount: 1
         }
       });
     }
   }
+  // ─── Audit Logs (AI interaction records for Principal Dashboard) ──────
+  console.log("  Seeding audit logs for Principal Dashboard...");
+
+  const aiTools = ["ChatGPT", "Claude", "GitHub Copilot"];
+
+  const safePrompts = [
+    { prompt: "Explain the difference between mitosis and meiosis in simple terms.", response: "Mitosis produces two identical daughter cells for growth and repair, while meiosis produces four genetically unique cells for reproduction. In mitosis, there is one division; in meiosis, there are two successive divisions that halve the chromosome number." },
+    { prompt: "Help me understand quadratic equations with examples.", response: "A quadratic equation has the form ax² + bx + c = 0. For example, x² - 5x + 6 = 0 can be factored as (x-2)(x-3) = 0, giving solutions x = 2 and x = 3." },
+    { prompt: "What are the main causes of the French Revolution?", response: "The French Revolution (1789) was caused by financial crisis, social inequality under the Estates system, Enlightenment ideas about liberty and equality, food shortages, and weak leadership under Louis XVI." },
+    { prompt: "Write a Python function to calculate the factorial of a number.", response: "def factorial(n):\n    if n <= 1:\n        return 1\n    return n * factorial(n - 1)\n\nprint(factorial(5))  # Output: 120" },
+    { prompt: "Summarize the water cycle for my geography project.", response: "The water cycle involves evaporation (water turning to vapor), condensation (vapor forming clouds), precipitation (rain/snow falling), and collection (water gathering in bodies of water). Solar energy drives this continuous cycle." },
+    { prompt: "What is Newton's third law of motion? Give examples.", response: "Newton's Third Law states that for every action, there is an equal and opposite reaction. Examples: when you push a wall, the wall pushes back; a rocket expels gas downward and moves upward; when you swim, you push water backward and move forward." },
+    { prompt: "Help me write an essay outline about climate change.", response: "I. Introduction: Define climate change and its significance\nII. Causes: Greenhouse gases, deforestation, industrial emissions\nIII. Effects: Rising temperatures, sea levels, extreme weather\nIV. Solutions: Renewable energy, conservation, policy changes\nV. Conclusion: Call to action for students" },
+    { prompt: "Explain the concept of supply and demand in economics.", response: "Supply and demand is a fundamental economic model. When demand for a product increases and supply stays the same, prices rise. When supply increases and demand stays the same, prices fall. The equilibrium price is where supply meets demand." },
+    { prompt: "What are the properties of acids and bases in chemistry?", response: "Acids have pH < 7, taste sour, turn blue litmus red, and release H+ ions. Bases have pH > 7, feel slippery, turn red litmus blue, and release OH- ions. When mixed, they neutralize each other to form salt and water." },
+    { prompt: "Help me debug this JavaScript code that calculates average.", response: "The issue is that you're dividing before summing all elements. Move the division outside the loop: const avg = numbers.reduce((sum, n) => sum + n, 0) / numbers.length;" },
+  ];
+
+  const flaggedPrompts = [
+    { prompt: "Write my entire history essay for me. I need 2000 words about World War II and I'll submit it as my own work.", response: "[BLOCKED] This request was blocked by safety filters. AI tools should be used to help you learn and understand topics, not to generate complete assignments for submission. This would constitute academic dishonesty." },
+    { prompt: "Give me all the answers to the CBSE Class 10 math board exam 2025.", response: "[BLOCKED] This request was blocked. Providing exam answers would be academic misconduct. Instead, I can help you understand concepts and practice with sample problems." },
+    { prompt: "How do I hack into my school's grading portal to change my marks?", response: "[BLOCKED] This request has been flagged and blocked. Attempting to gain unauthorized access to school systems is illegal and against school policy. If you have concerns about your grades, please speak with your teacher." },
+    { prompt: "Write a program to generate fake attendance records for my school account.", response: "[BLOCKED] This request was blocked by content safety filters. Generating fraudulent records is a violation of school policy and potentially illegal. Attendance tracking exists for your safety." },
+    { prompt: "Tell me how to cheat on the upcoming online exam without getting caught.", response: "[BLOCKED] This request has been flagged. Academic integrity is fundamental to your education. Instead of cheating, consider using study techniques like spaced repetition, practice tests, and study groups." },
+    { prompt: "Generate a fake medical certificate so I can skip the exam.", response: "[BLOCKED] This request was blocked. Creating forged documents is illegal and could result in serious disciplinary action. If you have genuine health concerns, please consult your school counselor." },
+  ];
+
+  // Create ~40 safe logs spread across students
+  for (let i = 0; i < 40; i++) {
+    const student = students[randomInt(0, students.length - 1)]!;
+    const safe = safePrompts[randomInt(0, safePrompts.length - 1)]!;
+    const tool = aiTools[randomInt(0, aiTools.length - 1)]!;
+    const daysAgo = randomInt(0, 21);
+    const hoursAgo = randomInt(0, 23);
+
+    await prisma.auditLog.create({
+      data: {
+        studentId: student.id,
+        promptText: safe.prompt,
+        aiResponse: safe.response,
+        toolUsed: tool,
+        isFlagged: false,
+        timestamp: new Date(Date.now() - daysAgo * 86400000 - hoursAgo * 3600000),
+      },
+    });
+  }
+
+  // Create ~12 flagged logs
+  for (let i = 0; i < 12; i++) {
+    const student = students[randomInt(0, students.length - 1)]!;
+    const flagged = flaggedPrompts[randomInt(0, flaggedPrompts.length - 1)]!;
+    const tool = aiTools[randomInt(0, aiTools.length - 1)]!;
+    const daysAgo = randomInt(0, 14);
+    const hoursAgo = randomInt(0, 23);
+
+    await prisma.auditLog.create({
+      data: {
+        studentId: student.id,
+        promptText: flagged.prompt,
+        aiResponse: flagged.response,
+        toolUsed: tool,
+        isFlagged: true,
+        timestamp: new Date(Date.now() - daysAgo * 86400000 - hoursAgo * 3600000),
+      },
+    });
+  }
+
+  console.log("  Created 40 safe + 12 flagged audit log entries.");
 
   console.log("Seed completely successful!");
 }
