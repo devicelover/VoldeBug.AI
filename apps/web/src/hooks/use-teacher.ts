@@ -138,6 +138,52 @@ export function useSubmission(submissionId: string) {
   });
 }
 
+// ─── Integrity report (AI misuse detection) ──────────────────────────────
+
+export interface IntegrityInteraction {
+  id: string;
+  toolUsed: string;
+  promptText: string;
+  aiResponse: string;
+  flagReasons: string[];
+  flagDescriptions: string[];
+  isFlagged: boolean;
+  promptLength: number;
+  responseLength: number;
+  source: string;
+  timestamp: string;
+}
+
+export interface SubmissionIntegrityReport {
+  submission: {
+    id: string;
+    student: { id: string; name: string | null; email: string | null };
+    assignmentId: string;
+    assignmentTitle: string;
+    submittedAt: string;
+    score: number | null;
+    grade: string | null;
+  };
+  aiInteractions: IntegrityInteraction[];
+  stats: {
+    interactionsForAssignment: number;
+    flaggedForAssignment: number;
+    flaggedAllTimeForStudent: number;
+  };
+}
+
+export function useSubmissionIntegrity(submissionId: string) {
+  return useQuery({
+    queryKey: ["integrity", "submission", submissionId],
+    queryFn: () =>
+      api.get<SubmissionIntegrityReport>(
+        `/v1/integrity/submission/${submissionId}`,
+      ),
+    enabled: !!submissionId,
+    staleTime: 60_000,
+  });
+}
+
 export function useGradeSubmission() {
   const qc = useQueryClient();
   return useMutation({

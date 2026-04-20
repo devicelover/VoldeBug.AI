@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
@@ -14,6 +14,7 @@ import {
   CheckCircle2,
 } from "lucide-react";
 import { api } from "@web/lib/api";
+import { useAssignments } from "@web/hooks/use-dashboard";
 
 // ─── Types ────────────────────────────────────────────────────────────────
 
@@ -80,10 +81,17 @@ export default function AiActivityLogPage() {
     queryFn: () => api.get<AiLogList>("/v1/integrity/me?limit=20"),
   });
 
-  // Active assignments to attach the log to (optional). We reuse the
-  // student's assignments list — see use-classroom.ts hooks if you want
-  // to pre-load. For brevity here, leave it free-text instead.
-  // (A future commit can wire this to a real dropdown.)
+  // Student's assignments (published + not archived). We bias towards
+  // active/soon-due and fall back to all. Limit to 15 in the dropdown
+  // so a student with a full term's backlog still gets a usable UI.
+  const assignmentsQ = useAssignments();
+  const assignmentOptions = useMemo(() => {
+    const all = assignmentsQ.data ?? [];
+    const active = all.filter((a) => a.status === "PUBLISHED");
+    return active
+      .sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime())
+      .slice(0, 15);
+  }, [assignmentsQ.data]);
 
   const submit = useMutation({
     mutationFn: (input: {
@@ -214,14 +222,36 @@ export default function AiActivityLogPage() {
             </select>
           </label>
           <label className="text-sm">
-            <span className="font-medium">Linked assignment ID (optional)</span>
-            <input
-              type="text"
-              placeholder="paste an assignment ID"
+            <span className="font-medium">Linked assignment (optional)</span>
+            <select
               className="mt-1 w-full rounded-lg border border-zinc-300 bg-white p-2 text-sm dark:border-zinc-700 dark:bg-zinc-900"
               value={assignmentId}
               onChange={(e) => setAssignmentId(e.target.value)}
-            />
+              disabled={assignmentsQ.isLoading}
+            >
+              <option value="">
+                {assignmentsQ.isLoading
+                  ? "Loading…"
+                  : assignmentOptions.length === 0
+                    ? "No active assignments"
+                    : "— None —"}
+              </option>
+              {assignmentOptions.map((a) => {
+                const due = new Date(a.dueDate);
+                const hoursLeft = (due.getTime() - Date.now()) / 3_600_000;
+                const dueLabel =
+                  hoursLeft < 0
+                    ? "overdue"
+                    : hoursLeft < 24
+                      ? `${Math.round(hoursLeft)}h left`
+                      : `due ${due.toLocaleDateString()}`;
+                return (
+                  <option key={a.id} value={a.id}>
+                    {a.title} · {dueLabel}
+                  </option>
+                );
+              })}
+            </select>
           </label>
         </div>
 

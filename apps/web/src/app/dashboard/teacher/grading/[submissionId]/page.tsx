@@ -4,11 +4,15 @@ import { useState, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { GradientMesh } from "@web/components/ui/background";
-import { useSubmission, useGradeSubmission } from "@web/hooks/use-teacher";
+import {
+  useSubmission,
+  useGradeSubmission,
+  useSubmissionIntegrity,
+} from "@web/hooks/use-teacher";
 import {
   ChevronLeft, Star, FileText, MessageSquare,
   CheckCircle2, Zap, AlertCircle, ExternalLink,
-  User, Calendar, Award
+  User, Calendar, Award, Shield, Bot, Hash, ChevronDown
 } from "lucide-react";
 
 // ─── Grade options ────────────────────────────────────────────────────────
@@ -29,6 +33,171 @@ const LETTER_GRADES = [
 
 function scoreToGrade(score: number): string {
   return LETTER_GRADES.find(g => score >= g.min)?.label ?? "F";
+}
+
+// ─── Integrity section (AI misuse detection) ──────────────────────────────
+//
+// Surfaces the student's AI activity for this assignment, with flag counts
+// and expandable prompt/response pairs. Renders nothing if the report is
+// empty so the section stays quiet on clean submissions.
+
+function IntegritySection({ submissionId }: { submissionId: string }) {
+  const { data, isLoading, isError } = useSubmissionIntegrity(submissionId);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+
+  if (isLoading) {
+    return (
+      <div className="card p-5 animate-pulse">
+        <div className="h-5 w-40 bg-surface rounded mb-3" />
+        <div className="h-3 w-64 bg-surface rounded" />
+      </div>
+    );
+  }
+  if (isError || !data) return null;
+
+  const { aiInteractions, stats } = data;
+  const hasActivity = aiInteractions.length > 0;
+  const hasFlags = stats.flaggedForAssignment > 0;
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay: 0.12 }}
+      className={`card p-5 ${
+        hasFlags ? "border-warning/40 bg-warning/5" : ""
+      }`}
+    >
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h2 className="font-display text-base font-semibold flex items-center gap-2">
+            <Shield className={`w-4.5 h-4.5 ${hasFlags ? "text-warning" : "text-accent-light"}`} />
+            AI Integrity Report
+          </h2>
+          <p className="text-xs text-foreground-subtle mt-1">
+            {hasActivity
+              ? "What this student asked AI while working on this assignment."
+              : "No AI activity logged for this assignment."}
+          </p>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+          <span className="px-2 py-1 rounded-md bg-surface border border-card-border">
+            <Bot className="w-3 h-3 inline mr-1" />
+            {stats.interactionsForAssignment} logged
+          </span>
+          {hasFlags && (
+            <span className="px-2 py-1 rounded-md bg-warning/10 border border-warning/20 text-warning font-medium">
+              <AlertCircle className="w-3 h-3 inline mr-1" />
+              {stats.flaggedForAssignment} flagged
+            </span>
+          )}
+          {stats.flaggedAllTimeForStudent > stats.flaggedForAssignment && (
+            <span
+              className="px-2 py-1 rounded-md bg-surface border border-card-border text-foreground-muted"
+              title="All-time flagged interactions for this student"
+            >
+              {stats.flaggedAllTimeForStudent} total for student
+            </span>
+          )}
+        </div>
+      </div>
+
+      {hasActivity && (
+        <div className="mt-4 space-y-2">
+          {aiInteractions.map((log) => {
+            const expanded = expandedId === log.id;
+            return (
+              <article
+                key={log.id}
+                className={`rounded-xl border transition-all ${
+                  log.isFlagged
+                    ? "border-warning/30 bg-warning/5"
+                    : "border-card-border bg-surface/30"
+                }`}
+              >
+                <button
+                  type="button"
+                  onClick={() => setExpandedId(expanded ? null : log.id)}
+                  className="w-full flex items-center gap-2 p-3 text-left"
+                >
+                  <span className="text-[11px] font-semibold px-1.5 py-0.5 rounded bg-surface border border-card-border text-foreground-muted">
+                    {log.toolUsed}
+                  </span>
+                  <span className="text-xs text-foreground-muted inline-flex items-center gap-1">
+                    <Hash className="w-3 h-3" />
+                    {log.promptLength} → {log.responseLength} words
+                  </span>
+                  {log.isFlagged && (
+                    <span className="text-xs text-warning font-medium inline-flex items-center gap-1">
+                      <AlertCircle className="w-3 h-3" />
+                      {log.flagDescriptions[0] ??
+                        log.flagReasons[0]?.replace(/_/g, " ")}
+                      {log.flagReasons.length > 1 && ` +${log.flagReasons.length - 1}`}
+                    </span>
+                  )}
+                  <span className="ml-auto text-xs text-foreground-subtle">
+                    {new Date(log.timestamp).toLocaleString()}
+                  </span>
+                  <ChevronDown
+                    className={`w-4 h-4 text-foreground-subtle transition-transform ${
+                      expanded ? "rotate-180" : ""
+                    }`}
+                  />
+                </button>
+
+                <AnimatePresence initial={false}>
+                  {expanded && (
+                    <motion.div
+                      initial={{ height: 0, opacity: 0 }}
+                      animate={{ height: "auto", opacity: 1 }}
+                      exit={{ height: 0, opacity: 0 }}
+                      transition={{ duration: 0.18 }}
+                      className="overflow-hidden"
+                    >
+                      <div className="px-3 pb-3 space-y-3 border-t border-card-border pt-3">
+                        {log.flagDescriptions.length > 0 && (
+                          <ul className="text-xs text-warning space-y-0.5 list-disc pl-5">
+                            {log.flagDescriptions.map((d, i) => (
+                              <li key={i}>{d}</li>
+                            ))}
+                          </ul>
+                        )}
+                        <div>
+                          <p className="text-[11px] font-medium text-foreground-subtle mb-1 uppercase tracking-wide">
+                            Student prompt
+                          </p>
+                          <p className="text-sm whitespace-pre-wrap text-foreground/90">
+                            {log.promptText}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-[11px] font-medium text-foreground-subtle mb-1 uppercase tracking-wide">
+                            AI response
+                          </p>
+                          <p className="text-sm whitespace-pre-wrap text-foreground/80 max-h-60 overflow-y-auto">
+                            {log.aiResponse}
+                          </p>
+                        </div>
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </article>
+            );
+          })}
+        </div>
+      )}
+
+      {!hasActivity && (
+        <p className="mt-3 text-sm text-foreground-subtle italic">
+          The student hasn&apos;t logged any AI use for this work. That could
+          mean they didn&apos;t use AI, or they didn&apos;t log it — consider
+          asking about their process in feedback.
+        </p>
+      )}
+    </motion.div>
+  );
 }
 
 // ─── Page ─────────────────────────────────────────────────────────────────
@@ -183,6 +352,9 @@ export default function GradeSubmissionPage() {
               </div>
             )}
           </motion.div>
+
+          {/* AI Integrity Report */}
+          <IntegritySection submissionId={submissionId} />
 
           {/* Already graded banner */}
           {isAlreadyGraded && (
