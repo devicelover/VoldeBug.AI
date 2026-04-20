@@ -110,6 +110,7 @@ model User {
   streak           Streak?
   auditLogs        AuditLog[]
   parentalConsent  ParentalConsent?
+  authoredLessonPlans LessonPlan[]   @relation("LessonPlanAuthor")
   lastActiveAt     DateTime           @default(now())
   createdAt        DateTime           @default(now())
   updatedAt        DateTime           @updatedAt
@@ -228,11 +229,74 @@ model Tool {
   subjects    String[]
   usageCount  Int           @default(0)
   assignments Assignment[]
+  lessonPlans LessonPlan[]
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
 
   @@index([category])
   @@map("tools")
+}
+
+// Voldebug Faculty-authored (or teacher-contributed) lesson plans.
+// NCERT / CBSE / ICSE / IB chapter-aligned, with explicit "how to use AI
+// ethically" steps. A teacher clicks "Use this plan" to spin up an
+// Assignment pre-populated from the plan's fields.
+model LessonPlan {
+  id              String    @id @default(cuid())
+  slug            String    @unique
+  title           String
+  summary         String    @db.Text
+
+  // Curriculum fields — designed so a principal / teacher can filter:
+  //   "Class 9, CBSE Science, chapter 8"
+  subject         String    // e.g. "Science", "History", "English", "Mathematics"
+  gradeLevel      Int       // 6..12
+  board           String    // "CBSE", "ICSE", "IB", "State", "All"
+  chapter         String?   // e.g. "Force and Laws of Motion"
+  chapterNumber   Int?
+
+  // Pedagogy
+  difficulty      String    @default("medium") // "easy" | "medium" | "hard"
+  durationMinutes Int       @default(45)
+  learningObjectives String[]
+
+  // AI integration — the heart of what makes this a Voldebug lesson plan.
+  // JSON-structured: [{step, instruction, suggestedPrompt, expectedLearning, timeMinutes}]
+  aiActivities    Json
+  suggestedToolId String?
+  suggestedTool   Tool?     @relation(fields: [suggestedToolId], references: [id])
+
+  // Supporting materials. [{type: "link"|"pdf"|"video", title, url}]
+  resources       Json      @default("[]")
+
+  // Optional rubric skeleton the teacher can customize on use.
+  // {criteria: [{name, weight, descriptors: {excellent, good, needs_work}}]}
+  rubricTemplate  Json?
+
+  // Discovery + ranking
+  tags            String[]
+
+  // Authorship — null == Voldebug faculty seed; else a teacher's creation.
+  authorId        String?
+  author          User?     @relation("LessonPlanAuthor", fields: [authorId], references: [id])
+
+  // Access control. isOfficial == Voldebug-vetted (gold badge in UI).
+  isPublic        Boolean   @default(true)
+  isOfficial      Boolean   @default(false)
+
+  // Engagement metrics
+  usageCount      Int       @default(0)
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  deletedAt       DateTime?
+
+  @@index([subject])
+  @@index([gradeLevel])
+  @@index([board])
+  @@index([isPublic, deletedAt])
+  @@index([subject, gradeLevel, board])
+  @@map("lesson_plans")
 }
 
 model Assignment {

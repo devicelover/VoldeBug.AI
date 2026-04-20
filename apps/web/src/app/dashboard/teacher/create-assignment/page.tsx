@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useCallback, Suspense } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useCallback, useEffect, Suspense } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { GradientMesh } from "@web/components/ui/background";
 import { useTeacherClasses, useCreateAssignment } from "@web/hooks/use-teacher";
@@ -251,11 +251,14 @@ function PreviewStep({ title, description, classId, classes, selectedTool, dueDa
 
 function CreateAssignmentForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { data: classes = [] } = useTeacherClasses();
+  const { data: tools } = useTools({});
   const createMutation = useCreateAssignment();
 
   const [step, setStep] = useState(0);
   const [error, setError] = useState<string>();
+  const [prefilledFromPlan, setPrefilledFromPlan] = useState(false);
 
   // Form state
   const [title, setTitle] = useState("");
@@ -265,6 +268,51 @@ function CreateAssignmentForm() {
   const [dueDate, setDueDate] = useState("");
   const [xpReward, setXpReward] = useState(50);
   const [earlyBonus, setEarlyBonus] = useState(25);
+
+  // ── Prefill from a lesson plan ──────────────────────────────────────
+  // When the teacher arrives here from /dashboard/lesson-plans/[slug] via
+  // the "Use this plan" button, the prefill payload is in sessionStorage
+  // under "lesson-plan-prefill" and the URL carries ?from-plan=1.
+  useEffect(() => {
+    if (searchParams.get("from-plan") !== "1") return;
+    try {
+      const raw = sessionStorage.getItem("lesson-plan-prefill");
+      if (!raw) return;
+      const prefill = JSON.parse(raw) as {
+        title: string;
+        description: string;
+        dueDate: string;
+        suggestedToolId: string | null;
+        xpReward: number;
+        earlyBonus: number;
+      };
+      setTitle(prefill.title);
+      setDescription(prefill.description);
+      if (prefill.dueDate) setDueDate(prefill.dueDate.slice(0, 16));
+      setXpReward(prefill.xpReward);
+      setEarlyBonus(prefill.earlyBonus);
+      setPrefilledFromPlan(true);
+      sessionStorage.removeItem("lesson-plan-prefill");
+    } catch {
+      /* ignore — no prefill available */
+    }
+  }, [searchParams]);
+
+  // Once tools load, pair up the suggestedToolId from the prefill with
+  // the actual tool object so the ToolStep shows it as selected.
+  useEffect(() => {
+    if (!prefilledFromPlan || !tools?.length) return;
+    try {
+      const raw = sessionStorage.getItem("lesson-plan-suggested-tool-id");
+      if (raw) {
+        const match = tools.find((t: any) => t.id === raw);
+        if (match) setSelectedTool(match);
+        sessionStorage.removeItem("lesson-plan-suggested-tool-id");
+      }
+    } catch {
+      /* ignore */
+    }
+  }, [prefilledFromPlan, tools]);
 
   const validateStep = (s: number): string | undefined => {
     if (s === 0) {
