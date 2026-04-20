@@ -17,11 +17,17 @@ lessonPlansRouter.use(authenticate);
 lessonPlansRouter.get("/", handleListLessonPlans);
 lessonPlansRouter.get("/:idOrSlug", handleGetLessonPlan);
 
-// Teachers can author their own plans + use existing ones.
-lessonPlansRouter.post("/", requireRole("TEACHER"), handleCreateLessonPlan);
+// Teachers author their own plans and mark plans as used. Admins can also
+// do both — admins in a small school often double as the first teacher,
+// and admin dashboards need to be able to exercise these endpoints.
+lessonPlansRouter.post(
+  "/",
+  requireRole("TEACHER", "ADMIN"),
+  handleCreateLessonPlan,
+);
 lessonPlansRouter.post(
   "/:id/use",
-  requireRole("TEACHER"),
+  requireRole("TEACHER", "ADMIN"),
   handleMarkLessonPlanUsed,
 );
 
