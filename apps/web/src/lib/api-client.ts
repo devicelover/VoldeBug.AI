@@ -57,6 +57,17 @@ export class ApiClient {
       body: JSON.stringify(body),
     });
   }
+
+  put<T>(path: string, body: Record<string, unknown>) {
+    return this.request<T>(path, {
+      method: "PUT",
+      body: JSON.stringify(body),
+    });
+  }
+
+  delete<T>(path: string) {
+    return this.request<T>(path, { method: "DELETE" });
+  }
 }
 
 export const api = new ApiClient();

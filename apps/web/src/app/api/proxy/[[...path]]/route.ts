@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@web/lib/auth";
+import { getToken } from "next-auth/jwt";
 import { env } from "@web/lib/env";
 
+// All HTTP verbs forward through the same handler. Adding a verb? Add it
+// here AND in the backend Express router or it will 404 silently.
 export async function GET(request: NextRequest) {
   return handleRequest(request, "GET");
 }
@@ -19,12 +21,22 @@ export async function DELETE(request: NextRequest) {
 }
 
 async function handleRequest(request: NextRequest, method: string) {
-  const session = await auth();
-  const user = session?.user as any;
-  if (!user?.id) {
+  // Read the full encrypted JWT (server-side only). Unlike auth(), this gives
+  // us the backend bearer token that we deliberately keep OFF the client
+  // session — see apps/web/src/lib/auth.ts for the rationale.
+  const token = await getToken({
+    req: request,
+    secret: process.env.AUTH_SECRET ?? process.env.NEXTAUTH_SECRET,
+  });
+
+  if (!token?.id) {
     return NextResponse.json(
-      { data: null, error: { code: "UNAUTHORIZED", message: "Not authenticated" }, meta: { timestamp: new Date().toISOString() } },
-      { status: 401 }
+      {
+        data: null,
+        error: { code: "UNAUTHORIZED", message: "Not authenticated" },
+        meta: { timestamp: new Date().toISOString() },
+      },
+      { status: 401 },
     );
   }
 
@@ -35,12 +47,11 @@ async function handleRequest(request: NextRequest, method: string) {
 
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
-    "X-User-Id": user.id || "",
-    "X-User-Role": user.role || "",
-    "X-User-Email": user.email || "",
+    "X-User-Id": token.id,
+    "X-User-Role": (token.role as string) ?? "",
   };
-  if (user.token) {
-    headers["Authorization"] = `Bearer ${user.token}`;
+  if (token.backendToken) {
+    headers["Authorization"] = `Bearer ${token.backendToken}`;
   }
 
   const res = await fetch(backendUrl, {

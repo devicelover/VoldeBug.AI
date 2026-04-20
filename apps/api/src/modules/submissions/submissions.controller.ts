@@ -87,6 +87,8 @@ export async function handleCreateSubmission(req: Request, res: Response) {
 
 export async function handleGetSubmission(req: Request, res: Response) {
   const { id } = req.params;
+  const userId = req.userId!;
+  const userRole = req.userRole!;
 
   try {
     const submission = await prisma.submission.findUnique({
@@ -105,6 +107,23 @@ export async function handleGetSubmission(req: Request, res: Response) {
 
     if (!submission) {
       return apiError(res, { code: "NOT_FOUND", message: "Submission not found", status: 404 });
+    }
+
+    // ── Ownership check ──────────────────────────────────────────────
+    // STUDENT: only own submissions.
+    // TEACHER: only submissions for assignments in classes they teach.
+    // ADMIN:   any submission within their school (defense-in-depth: any).
+    const isOwner = submission.studentId === userId;
+    const isClassTeacher =
+      userRole === "TEACHER" && submission.assignment.class.teacherId === userId;
+    const isAdmin = userRole === "ADMIN";
+
+    if (!isOwner && !isClassTeacher && !isAdmin) {
+      return apiError(res, {
+        code: "FORBIDDEN",
+        message: "You do not have access to this submission",
+        status: 403,
+      });
     }
 
     return apiSuccess(res, submission);
@@ -159,8 +178,27 @@ export async function handleGetUploadPresignedUrl(req: Request, res: Response) {
 
 export async function handleListSubmissionsForAssignment(req: Request, res: Response) {
   const { assignmentId } = req.params;
+  const userId = req.userId!;
 
   try {
+    // Verify the requesting teacher owns the assignment's class
+    const assignment = await prisma.assignment.findUnique({
+      where: { id: assignmentId },
+      include: { class: { select: { teacherId: true } } },
+    });
+
+    if (!assignment) {
+      return apiError(res, { code: "NOT_FOUND", message: "Assignment not found", status: 404 });
+    }
+
+    if (assignment.class.teacherId !== userId) {
+      return apiError(res, {
+        code: "FORBIDDEN",
+        message: "Only the class teacher can list submissions for this assignment",
+        status: 403,
+      });
+    }
+
     const submissions = await prisma.submission.findMany({
       where: { assignmentId, deletedAt: null },
       include: {

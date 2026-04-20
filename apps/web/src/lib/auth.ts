@@ -4,20 +4,32 @@ import Credentials from "next-auth/providers/credentials";
 import type { DefaultSession } from "next-auth";
 
 // ── Type augmentation ────────────────────────────────────────────────────
+// NOTE: backend JWT lives ONLY inside the encrypted NextAuth JWT cookie
+// (server-side, httpOnly). It is NEVER projected onto Session — exposing
+// it on the client would let any XSS exfiltrate full backend credentials.
+// Server code reads it via `getToken()` from "next-auth/jwt".
 declare module "next-auth" {
   interface Session {
     user: {
       id: string;
       role: string;
       onboardingStatus: string;
-      token?: string;
     } & DefaultSession["user"];
   }
   interface User {
     id: string;
     role: string;
     onboardingStatus: string;
-    token?: string;
+    token?: string; // present transiently during sign-in; not on session
+  }
+}
+
+declare module "next-auth/jwt" {
+  interface JWT {
+    id?: string;
+    role?: string;
+    onboardingStatus?: string;
+    backendToken?: string;
   }
 }
 
@@ -120,13 +132,15 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     },
 
     // ── Expose fields to the client session ──────────────────────────────
+    // backendToken is intentionally NOT projected — it stays in the
+    // encrypted JWT cookie so the client cannot read it. Server code
+    // (proxy route, RSC) reads it via getToken() from "next-auth/jwt".
     async session({ session, token }) {
       if (session.user) {
         session.user.id = token.id as string;
         session.user.name = token.name as string | undefined;
         session.user.role = token.role as string;
         session.user.onboardingStatus = token.onboardingStatus as string;
-        session.user.token = token.backendToken as string | undefined;
       }
       return session;
     },

@@ -18,11 +18,24 @@ import { limiter } from "./middleware/rateLimiter.js";
 
 const app: Express = express();
 
+// Trust the first proxy hop (nginx/CloudPanel) so X-Forwarded-* headers are
+// honoured by express-rate-limit, req.ip, and secure-cookie detection.
+// CLAUDE.md §4.6 — proxy-aware deployment.
+app.set("trust proxy", 1);
+
 app.use(helmet());
-const allowedOrigins = [
-  "http://localhost:3000", // Keep this for your local development
-  "https://ai-voldebug.vercel.app" // Your live Vercel frontend
+
+// Allowed origins are env-driven so each school deployment / preview branch
+// can add its own host without a code change.
+const defaultOrigins = [
+  "http://localhost:3000",
+  "https://ai-voldebug.vercel.app",
 ];
+const allowedOrigins = (process.env.ALLOWED_ORIGINS ?? "")
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean)
+  .concat(defaultOrigins);
 
 app.use(
   cors({
