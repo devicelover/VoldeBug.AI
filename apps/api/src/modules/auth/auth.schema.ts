@@ -7,6 +7,13 @@ export const registerSchema = z.object({
     .string()
     .min(6, "Password must be at least 6 characters")
     .max(128),
+  // Optional for now to keep Google-OAuth flow working; the UI prompts
+  // students to fill it in during onboarding. DPDP minor-detection runs
+  // once a DOB is supplied.
+  dateOfBirth: z
+    .string()
+    .datetime({ message: "dateOfBirth must be an ISO-8601 timestamp" })
+    .optional(),
 });
 
 export const loginSchema = z.object({

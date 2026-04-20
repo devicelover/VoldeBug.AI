@@ -3,11 +3,13 @@ import { prisma } from "../../utils/prisma.js";
 import { registerSchema, loginSchema, roleSchema } from "./auth.schema.js";
 import { generateToken } from "../../utils/jwt.js";
 import type { UserRole } from "@prisma/client";
+import { ensurePendingConsent, isMinor } from "../consent/consent.service.js";
 
 export async function registerUser(input: {
   name: string;
   email: string;
   password: string;
+  dateOfBirth?: string;
 }) {
   const data = registerSchema.parse(input);
 
@@ -19,6 +21,7 @@ export async function registerUser(input: {
   }
 
   const passwordHash = await hash(data.password, 12);
+  const dob = data.dateOfBirth ? new Date(data.dateOfBirth) : null;
 
   const user = await prisma.user.create({
     data: {
@@ -26,6 +29,7 @@ export async function registerUser(input: {
       email: data.email,
       passwordHash,
       role: "STUDENT",
+      dateOfBirth: dob ?? undefined,
     },
     select: {
       id: true,
@@ -33,8 +37,16 @@ export async function registerUser(input: {
       email: true,
       role: true,
       onboardingStatus: true,
+      dateOfBirth: true,
     },
   });
+
+  // DPDP Act 2023: if the new user is under 18, stand up a PENDING
+  // parental consent record immediately so the onboarding UI can surface
+  // the "ask a parent to grant consent" step.
+  if (isMinor(user.dateOfBirth)) {
+    await ensurePendingConsent(user.id);
+  }
 
   return user;
 }
@@ -106,11 +118,21 @@ export async function getUserById(userId: string) {
       gradeLevel: true,
       studentId: true,
       schoolId: true,
+      dateOfBirth: true,
       lastActiveAt: true,
+      parentalConsent: {
+        select: { status: true, tokenExpiresAt: true, respondedAt: true },
+      },
     },
   });
 
-  return user;
+  if (!user) return null;
+
+  // Expose a flat `consentStatus` string so the client doesn't have to
+  // reason about null vs missing. NOT_REQUIRED means the user is 18+ or
+  // no DOB is on file yet.
+  const consentStatus = user.parentalConsent?.status ?? "NOT_REQUIRED";
+  return { ...user, consentStatus };
 }
 
 export async function findUser(email: string) {

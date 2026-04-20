@@ -14,6 +14,10 @@ export const AUDIT = {
   CLASS_DELETED: "class.deleted",
   SUBMISSION_GRADED: "submission.graded",
   UPLOAD_PRESIGNED: "upload.presigned",
+  // DPDP Act 2023 parental-consent lifecycle
+  CONSENT_REQUESTED: "consent.requested",
+  CONSENT_GRANTED: "consent.granted",
+  CONSENT_DENIED: "consent.denied",
 } as const;
 
 export type AuditAction = (typeof AUDIT)[keyof typeof AUDIT];

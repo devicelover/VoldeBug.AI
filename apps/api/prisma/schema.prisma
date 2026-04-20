@@ -93,6 +93,7 @@ model User {
   image            String?
   role             UserRole
   onboardingStatus OnboardingStatus   @default(NOT_STARTED)
+  dateOfBirth      DateTime?          // Required for minor-detection (DPDP Act 2023)
   gradeLevel       Int?
   studentId        String?
   schoolId         String?
@@ -108,6 +109,7 @@ model User {
   notifications    Notification[]
   streak           Streak?
   auditLogs        AuditLog[]
+  parentalConsent  ParentalConsent?
   lastActiveAt     DateTime           @default(now())
   createdAt        DateTime           @default(now())
   updatedAt        DateTime           @updatedAt
@@ -120,6 +122,37 @@ model User {
   @@index([schoolId])
   @@index([lastActiveAt])
   @@map("users")
+}
+
+enum ConsentStatus {
+  PENDING
+  GRANTED
+  DENIED
+  EXPIRED
+}
+
+// DPDP Act 2023 compliance: verifiable parental consent for minors (<18).
+// One record per minor user. Token is single-use and expires in 30 days.
+// The parent responds via a signed URL the school admin / teacher emails
+// them (email wiring is a separate BullMQ job — see followups).
+model ParentalConsent {
+  id                 String        @id @default(cuid())
+  userId             String        @unique
+  user               User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  status             ConsentStatus @default(PENDING)
+  parentEmail        String?
+  parentName         String?
+  parentRelationship String?       // e.g. "mother", "legal guardian"
+  token              String        @unique // opaque single-use URL token
+  tokenExpiresAt     DateTime
+  respondedAt        DateTime?
+  respondedFromIp    String?
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+
+  @@index([status])
+  @@index([token])
+  @@map("parental_consents")
 }
 
 model Class {

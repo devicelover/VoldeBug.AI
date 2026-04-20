@@ -1,5 +1,6 @@
 import express from "express";
 import { authenticate, requireRole } from "../../middleware/auth.js";
+import { requireParentalConsent } from "../../middleware/consentGate.js";
 import {
   submissionLimiter,
   uploadLimiter,
@@ -18,15 +19,25 @@ const submissionsRouter = express.Router();
 
 submissionsRouter.use(authenticate);
 
-// Student: create submission (write — rate-limited)
-submissionsRouter.post("/", submissionLimiter, handleCreateSubmission);
+// Student: create submission (write — rate-limited, DPDP-gated)
+submissionsRouter.post(
+  "/",
+  requireParentalConsent,
+  submissionLimiter,
+  handleCreateSubmission,
+);
 
 // Student: view own submission history (read)
 submissionsRouter.get("/history", handleGetSubmissionHistory);
 
 // Student: get presigned URL for file upload (write — tight rate limit
 // because each URL is a short-lived credential for our storage bucket)
-submissionsRouter.get("/upload-url", uploadLimiter, handleGetUploadPresignedUrl);
+submissionsRouter.get(
+  "/upload-url",
+  requireParentalConsent,
+  uploadLimiter,
+  handleGetUploadPresignedUrl,
+);
 
 // Student/Teacher: view single submission (ownership enforced in controller)
 submissionsRouter.get("/:id", handleGetSubmission);
