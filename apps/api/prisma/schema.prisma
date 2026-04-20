@@ -353,6 +353,9 @@ model Notification {
   @@map("notifications")
 }
 
+// AI prompt / response log for academic integrity tracking. Surfaced in
+// the Principal Dashboard. Distinct from SecurityAuditLog which records
+// admin/auth actions for compliance.
 model AuditLog {
   id         String   @id @default(cuid())
   studentId  String
@@ -369,4 +372,29 @@ model AuditLog {
   @@index([timestamp])
   @@index([studentId, timestamp])
   @@map("audit_logs")
+}
+
+// Security audit log: who did what to whom. Append-only, never updated.
+// Required for DPDP / FERPA "who accessed this student's data?" queries.
+//
+// `actorId` may be null for unauthenticated actions (failed logins).
+// `targetUserId` may be null for actions that don't affect a specific user.
+// `metadata` is a JSON blob of action-specific context (e.g. old/new role).
+model SecurityAuditLog {
+  id           String   @id @default(cuid())
+  action       String   // see SECURITY_AUDIT_ACTIONS in audit.service.ts
+  actorId      String?
+  actorEmail   String?  // captured at time-of-action so a deleted user is still traceable
+  actorRole    String?
+  targetUserId String?
+  ip           String?
+  userAgent    String?  @db.Text
+  metadata     Json?
+  createdAt    DateTime @default(now())
+
+  @@index([action])
+  @@index([actorId])
+  @@index([targetUserId])
+  @@index([createdAt])
+  @@map("security_audit_logs")
 }

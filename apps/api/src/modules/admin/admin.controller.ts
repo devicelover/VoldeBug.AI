@@ -1,7 +1,9 @@
 import type { Request, Response } from "express";
+import { UserRole } from "@prisma/client";
 import { prisma } from "../../utils/prisma.js";
 import { apiSuccess, apiError } from "../../utils/api.js";
 import { getSchoolOverview, getAuditLogs } from "./admin.service.js";
+import { audit, AUDIT } from "../audit/audit.service.js";
 
 export async function handleGetSchool(req: Request, res: Response) {
   const userId = req.userId!;
@@ -111,14 +113,28 @@ export async function handleUpdateUserRole(req: Request, res: Response) {
   const { role } = req.body;
 
   try {
-    if (!["STUDENT", "TEACHER", "ADMIN"].includes(role)) {
+    // Validate against the generated UserRole enum so adding a new role
+    // (e.g. PRINCIPAL) doesn't silently succeed against the old allowlist.
+    if (!Object.values(UserRole).includes(role)) {
       return apiError(res, { code: "VALIDATION_ERROR", message: "Invalid role", status: 422 });
     }
+
+    const before = await prisma.user.findUnique({
+      where: { id },
+      select: { role: true },
+    });
 
     const user = await prisma.user.update({
       where: { id },
       data: { role },
       select: { id: true, name: true, email: true, role: true },
+    });
+
+    void audit({
+      action: AUDIT.USER_ROLE_CHANGED,
+      req,
+      targetUserId: id,
+      metadata: { from: before?.role, to: user.role },
     });
 
     return apiSuccess(res, user);
@@ -185,10 +201,56 @@ export async function handleDeleteClass(req: Request, res: Response) {
   const { id } = req.params;
 
   try {
+    const before = await prisma.class.findUnique({
+      where: { id },
+      select: { name: true, schoolId: true, teacherId: true },
+    });
     await prisma.class.delete({ where: { id } });
+    void audit({
+      action: AUDIT.CLASS_DELETED,
+      req,
+      metadata: { classId: id, ...before },
+    });
     return apiSuccess(res, { success: true });
   } catch {
     return apiError(res, { code: "INTERNAL_ERROR", message: "Failed to delete class", status: 500 });
+  }
+}
+
+// ─── Security Audit Log Viewer (admin only) ───────────────────────────────
+
+export async function handleListSecurityAuditLogs(req: Request, res: Response) {
+  const { page = 1, limit = 50, action, actorId, targetUserId } = req.query;
+
+  try {
+    const skip = (Number(page) - 1) * Number(limit);
+
+    const where: Record<string, unknown> = {};
+    if (typeof action === "string") where.action = action;
+    if (typeof actorId === "string") where.actorId = actorId;
+    if (typeof targetUserId === "string") where.targetUserId = targetUserId;
+
+    const [logs, total] = await Promise.all([
+      prisma.securityAuditLog.findMany({
+        where,
+        skip,
+        take: Math.min(Number(limit), 200),
+        orderBy: { createdAt: "desc" },
+      }),
+      prisma.securityAuditLog.count({ where }),
+    ]);
+
+    return apiSuccess(res, { logs, total }, 200, {
+      page: Number(page),
+      limit: Number(limit),
+      total,
+    });
+  } catch {
+    return apiError(res, {
+      code: "INTERNAL_ERROR",
+      message: "Failed to fetch security audit logs",
+      status: 500,
+    });
   }
 }
 

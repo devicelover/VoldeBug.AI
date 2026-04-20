@@ -3,10 +3,19 @@ import { registerUser, loginUser, setUserRole, getUserById, createUserFromProvid
 import { apiSuccess, apiError } from "../../utils/api.js";
 import { generateToken } from "../../utils/jwt.js";
 import { logger } from "../../middleware/requestLogger.js";
+import { audit, AUDIT } from "../audit/audit.service.js";
 
 export async function handleRegister(req: Request, res: Response) {
   try {
     const user = await registerUser(req.body);
+    void audit({
+      action: AUDIT.AUTH_REGISTER,
+      req,
+      actorId: user.id,
+      actorEmail: user.email ?? null,
+      actorRole: user.role,
+      targetUserId: user.id,
+    });
     return apiSuccess(res, user, 201);
   } catch (err) {
     return apiError(res, {
@@ -21,12 +30,26 @@ export async function handleLogin(req: Request, res: Response) {
   try {
     const user = await loginUser(req.body);
     if (!user) {
+      void audit({
+        action: AUDIT.AUTH_LOGIN_FAILED,
+        req,
+        actorEmail: typeof req.body?.email === "string" ? req.body.email : null,
+        metadata: { reason: "invalid_credentials" },
+      });
       return apiError(res, {
         code: "INVALID_CREDENTIALS",
         message: "Invalid email or password",
         status: 401,
       });
     }
+    void audit({
+      action: AUDIT.AUTH_LOGIN_SUCCESS,
+      req,
+      actorId: user.id,
+      actorEmail: user.email ?? null,
+      actorRole: user.role,
+      targetUserId: user.id,
+    });
     return apiSuccess(res, user);
   } catch (err) {
     return apiError(res, {
@@ -47,7 +70,14 @@ export async function handleSetRole(req: Request, res: Response) {
         status: 401,
       });
     }
+    const previous = await getUserById(userId);
     const user = await setUserRole(userId, req.body.role);
+    void audit({
+      action: AUDIT.AUTH_ROLE_SET,
+      req,
+      targetUserId: userId,
+      metadata: { from: previous?.role, to: user.role },
+    });
     return apiSuccess(res, user);
   } catch (err) {
     return apiError(res, {

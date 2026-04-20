@@ -6,6 +6,7 @@ import {
   gradeSubmissionSchema,
 } from "./submissions.schema.js";
 import { computeGradeXp } from "./submissions.service.js";
+import { audit, AUDIT } from "../audit/audit.service.js";
 
 export async function handleCreateSubmission(req: Request, res: Response) {
   const userId = req.userId!;
@@ -166,7 +167,9 @@ export async function handleGetSubmissionHistory(req: Request, res: Response) {
 }
 
 export async function handleGetUploadPresignedUrl(req: Request, res: Response) {
-  // Returns a placeholder for now — real S3/R2 presigned URL in Phase 5
+  // TODO(commit D): replace with real S3/R2 presigned URL via @aws-sdk.
+  // For now we still return a placeholder URL but at least audit the
+  // intent so abuse is visible in the security log.
   const { fileName, fileType } = req.query;
 
   if (!fileName || !fileType) {
@@ -176,6 +179,12 @@ export async function handleGetUploadPresignedUrl(req: Request, res: Response) {
       status: 422,
     });
   }
+
+  void audit({
+    action: AUDIT.UPLOAD_PRESIGNED,
+    req,
+    metadata: { fileName: String(fileName), fileType: String(fileType) },
+  });
 
   return apiSuccess(res, {
     uploadUrl: "/api/v1/submissions/upload",
@@ -285,6 +294,18 @@ export async function handleGradeSubmission(req: Request, res: Response) {
         },
       });
     }
+
+    void audit({
+      action: AUDIT.SUBMISSION_GRADED,
+      req,
+      targetUserId: submission.studentId,
+      metadata: {
+        submissionId: submission.id,
+        assignmentId: submission.assignmentId,
+        score,
+        xpAwarded,
+      },
+    });
 
     const { createNotification } = await import("../notifications/notifications.service.js");
 

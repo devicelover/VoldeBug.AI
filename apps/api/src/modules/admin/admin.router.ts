@@ -10,6 +10,7 @@ import {
   handleDeleteClass,
   handleGetSchoolOverview,
   handleGetAuditLogs,
+  handleListSecurityAuditLogs,
 } from "./admin.controller.js";
 
 const adminRouter = express.Router();
@@ -31,6 +32,9 @@ adminRouter.delete("/classes/:id", handleDeleteClass);
 
 // Principal Dashboard
 adminRouter.get("/overview", handleGetSchoolOverview);
-adminRouter.get("/audit-logs", handleGetAuditLogs);
+adminRouter.get("/audit-logs", handleGetAuditLogs); // AI prompt logs (academic integrity)
+
+// Security audit log: who-did-what to whom — for DPDP/FERPA queries.
+adminRouter.get("/security-audit-logs", handleListSecurityAuditLogs);
 
 export { adminRouter };
