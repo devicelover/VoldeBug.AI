@@ -1,0 +1,78 @@
+# ─────────────────────────────────────────────────────────────────────────
+# Production infrastructure for a self-hosted Voldebug AI deployment.
+#
+# Runs three long-lived containers on the same VPS as the Node.js apps:
+#   - postgres  : primary database (port 5434 on loopback so it can
+#                 coexist with other Postgres instances like zpray on 5433)
+#   - redis     : sessions, leaderboard cache, BullMQ backing store
+#   - minio     : S3-compatible object storage for submission uploads
+#
+# All three bind to 127.0.0.1 only — nginx (or the apps) reach them over
+# loopback. Nothing here should ever be exposed to the public internet.
+#
+# Before `docker compose up -d`:
+#   1. Copy .env.example → .env and fill in the _PASSWORD / _ROOT_USER vars
+#   2. Set unique, strong values — these back real student data
+# ─────────────────────────────────────────────────────────────────────────
+name: voldebug-ai
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: voldebug-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-voldebug}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_DB: ${POSTGRES_DB:-voldebug_ai}
+    ports:
+      - "127.0.0.1:5434:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-voldebug}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: voldebug-redis
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:6381:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # S3-compatible storage for submission file uploads. Drop-in replacement
+  # for AWS S3 / Cloudflare R2 — the Node API speaks S3 API to all three.
+  # Swap in R2/S3 for production by setting S3_ENDPOINT + credentials in
+  # the API's .env and leaving this container idle or stopped.
+  minio:
+    image: minio/minio:latest
+    container_name: voldebug-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?MINIO_ROOT_USER is required}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD is required}
+    ports:
+      - "127.0.0.1:9000:9000"  # S3 API (nginx proxies this to the outside world)
+      - "127.0.0.1:9001:9001"  # Admin console (proxy separately or keep internal)
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:
+  redis_data:
+  minio_data:
