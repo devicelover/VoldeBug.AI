@@ -13,6 +13,7 @@ import { teacherRouter } from "./modules/teacher/teacher.router.js";
 import { notificationsRouter } from "./modules/notifications/notifications.router.js";
 import { adminRouter } from "./modules/admin/admin.router.js";
 import { consentRouter } from "./modules/consent/consent.router.js";
+import { integrityRouter } from "./modules/integrity/integrity.router.js";
 import { requestLogger } from "./middleware/requestLogger.js";
 import { errorHandler } from "./middleware/errorHandler.js";
 import { limiter } from "./middleware/rateLimiter.js";
@@ -65,6 +66,7 @@ api.use("/teacher", teacherRouter);
 api.use("/notifications", notificationsRouter);
 api.use("/admin", adminRouter);
 api.use("/consent", consentRouter);
+api.use("/integrity", integrityRouter);
 
 app.use("/v1", api);
 

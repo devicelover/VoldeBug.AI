@@ -255,6 +255,7 @@ model Assignment {
   updatedAt        DateTime         @updatedAt
   deletedAt        DateTime?
   submissions      Submission[]
+  auditLogs        AuditLog[]
 
   @@index([classId])
   @@index([creatorId])
@@ -389,19 +390,50 @@ model Notification {
 // AI prompt / response log for academic integrity tracking. Surfaced in
 // the Principal Dashboard. Distinct from SecurityAuditLog which records
 // admin/auth actions for compliance.
+//
+// Detection rules (see modules/integrity/rules.ts) run on insert and
+// populate `flagReasons`. `isFlagged` is derived (= flagReasons not empty)
+// and kept for fast index-only queries on the Principal Dashboard.
 model AuditLog {
-  id         String   @id @default(cuid())
-  studentId  String
-  student    User     @relation(fields: [studentId], references: [id], onDelete: Cascade)
-  promptText String   @db.Text
-  aiResponse String   @db.Text
-  toolUsed   String
-  isFlagged  Boolean  @default(false)
-  timestamp  DateTime @default(now())
-  createdAt  DateTime @default(now())
+  id            String   @id @default(cuid())
+  studentId     String
+  student       User     @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  // Optional link to the assignment the student was working on at the time.
+  // Lets the teacher integrity report scope to "AI activity around this
+  // submission" instead of all-time.
+  assignmentId  String?
+  assignment    Assignment? @relation(fields: [assignmentId], references: [id])
+
+  promptText    String   @db.Text
+  aiResponse    String   @db.Text
+  toolUsed      String
+
+  // Hashes (sha256, hex) for cheap deduplication and identical-output
+  // detection across students. Cheaper than a full Text index.
+  promptHash    String?
+  responseHash  String?
+
+  // Token-ish counts (server-computed, word-split fallback). Used by
+  // rules and surfaced to the teacher.
+  promptLength  Int      @default(0)
+  responseLength Int     @default(0)
+
+  // Detection output. Empty array == not flagged. Each entry is a
+  // string from AiIntegrityFlag (see modules/integrity/rules.ts).
+  flagReasons   String[] @default([])
+  isFlagged     Boolean  @default(false)
+
+  // Where the data came from — "manual_paste" today; "voldebug_chat" or
+  // "browser_ext" later.
+  source        String   @default("manual_paste")
+
+  timestamp     DateTime @default(now())
+  createdAt     DateTime @default(now())
 
   @@index([studentId])
+  @@index([assignmentId])
   @@index([isFlagged])
+  @@index([responseHash])
   @@index([timestamp])
   @@index([studentId, timestamp])
   @@map("audit_logs")
