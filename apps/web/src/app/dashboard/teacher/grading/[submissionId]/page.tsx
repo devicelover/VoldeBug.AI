@@ -59,13 +59,19 @@ export default function GradeSubmissionPage() {
     if (!feedback.trim()) { setError("Please leave feedback for the student."); return; }
     setError(undefined);
     try {
+      // Server computes XP from `score` (server-side authority — see
+      // computeGradeXp). Teachers can only nudge with a bounded bonus.
+      const bonus =
+        xpOverride === "" || Number.isNaN(Number(xpOverride))
+          ? undefined
+          : Math.max(0, Math.min(50, Number(xpOverride)));
       await gradeMutation.mutateAsync({
         submissionId,
         data: {
           score,
           grade,
           feedback,
-          xpAwarded: xpOverride === "" ? undefined : Number(xpOverride),
+          teacherBonusXp: bonus,
         },
       });
       setSuccess(true);

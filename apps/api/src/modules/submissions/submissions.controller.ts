@@ -1,20 +1,27 @@
 import type { Request, Response } from "express";
 import { prisma } from "../../utils/prisma.js";
 import { apiSuccess, apiError } from "../../utils/api.js";
+import {
+  createSubmissionSchema,
+  gradeSubmissionSchema,
+} from "./submissions.schema.js";
+import { computeGradeXp } from "./submissions.service.js";
 
 export async function handleCreateSubmission(req: Request, res: Response) {
   const userId = req.userId!;
 
-  try {
-    const { assignmentId, fileUrls, studentNotes } = req.body;
+  // Zod validation gives us typed input + structured error messages.
+  const parsed = createSubmissionSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return apiError(res, {
+      code: "VALIDATION_ERROR",
+      message: parsed.error.issues[0]?.message ?? "Invalid submission",
+      status: 422,
+    });
+  }
+  const { assignmentId, fileUrls, studentNotes } = parsed.data;
 
-    if (!assignmentId || !fileUrls || !fileUrls.length) {
-      return apiError(res, {
-        code: "VALIDATION_ERROR",
-        message: "assignmentId and fileUrls are required",
-        status: 422,
-      });
-    }
+  try {
 
     // Verify assignment exists and is published
     const assignment = await prisma.assignment.findUnique({
@@ -218,9 +225,20 @@ export async function handleGradeSubmission(req: Request, res: Response) {
   const { id } = req.params;
   const graderId = req.userId!;
 
-  try {
-    const { score, grade, feedback, xpAwarded } = req.body;
+  // Validate the grading payload. Note that `xpAwarded` is NOT in the
+  // schema — the server computes it from `score` so a tampered request
+  // body cannot inflate XP. CLAUDE.md §4.7.
+  const parsed = gradeSubmissionSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return apiError(res, {
+      code: "VALIDATION_ERROR",
+      message: parsed.error.issues[0]?.message ?? "Invalid grade payload",
+      status: 422,
+    });
+  }
+  const { score, grade, feedback, teacherBonusXp } = parsed.data;
 
+  try {
     const submission = await prisma.submission.findUnique({
       where: { id },
       include: {
@@ -239,6 +257,9 @@ export async function handleGradeSubmission(req: Request, res: Response) {
       return apiError(res, { code: "FORBIDDEN", message: "Only the class teacher can grade this submission", status: 403 });
     }
 
+    // Server is the sole authority on XP — never trust the client.
+    const xpAwarded = computeGradeXp(score, teacherBonusXp);
+
     const updated = await prisma.submission.update({
       where: { id },
       data: {
@@ -254,12 +275,11 @@ export async function handleGradeSubmission(req: Request, res: Response) {
       },
     });
 
-    // Award grade XP transaction
-    if (xpAwarded && Number(xpAwarded) > 0) {
+    if (xpAwarded > 0) {
       await prisma.xPTransaction.create({
         data: {
           userId: submission.studentId,
-          amount: Number(xpAwarded),
+          amount: xpAwarded,
           source: "ASSIGNMENT_GRADE",
           assignmentId: submission.assignmentId,
         },
@@ -267,13 +287,17 @@ export async function handleGradeSubmission(req: Request, res: Response) {
     }
 
     const { createNotification } = await import("../notifications/notifications.service.js");
-    
+
     createNotification({
       userId: submission.studentId,
       type: "GRADE_RECEIVED",
       title: "Grade Received",
       body: `Your submission for "${submission.assignment.title}" has been graded! Score: ${score}`,
-    }).catch(console.error);
+    }).catch((err) => {
+      // Don't crash the grading flow if the notification queue is down;
+      // log and move on. Replace with the BullMQ enqueue once that lands.
+      console.error("[grade] notification create failed:", err);
+    });
 
     return apiSuccess(res, updated);
   } catch (err) {

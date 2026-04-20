@@ -146,8 +146,15 @@ export function useGradeSubmission() {
       data,
     }: {
       submissionId: string;
-      data: { score: number; grade: string; feedback: string; xpAwarded?: number };
-    }) => api.patch(`/v1/submissions/${submissionId}/grade`, data as any),
+      data: {
+        score: number;
+        grade: string;
+        feedback: string;
+        // Server computes total XP from score; this is a bounded bonus
+        // (0..50) the teacher can add. See computeGradeXp on the API.
+        teacherBonusXp?: number;
+      };
+    }) => api.patch(`/v1/submissions/${submissionId}/grade`, data as Record<string, unknown>),
     onSuccess: (_, { submissionId }) => {
       qc.invalidateQueries({ queryKey: ["submissions", submissionId] });
       qc.invalidateQueries({ queryKey: ["teacher", "dashboard"] });
