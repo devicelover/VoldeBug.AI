@@ -7,6 +7,8 @@ import {
   handleGetMyAiHistory,
   handleSubmissionIntegrity,
   handleClassIntegrityFeed,
+  handleSchoolIntegrityFeed,
+  handleStudentIntegrityHistory,
 } from "./integrity.controller.js";
 
 const integrityRouter = express.Router();
@@ -37,6 +39,23 @@ integrityRouter.get(
   authenticate,
   requireRole("TEACHER"),
   handleClassIntegrityFeed,
+);
+
+// ── Admin / Principal endpoints ─────────────────────────────────────────
+// Same role ("ADMIN") covers both tiers today. When we split into a
+// dedicated PRINCIPAL role, widen the guard here.
+integrityRouter.get(
+  "/school",
+  authenticate,
+  requireRole("ADMIN"),
+  handleSchoolIntegrityFeed,
+);
+
+integrityRouter.get(
+  "/student/:studentId",
+  authenticate,
+  requireRole("ADMIN"),
+  handleStudentIntegrityHistory,
 );
 
 export { integrityRouter };

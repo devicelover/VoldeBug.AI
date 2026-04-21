@@ -15,6 +15,7 @@ import { adminRouter } from "./modules/admin/admin.router.js";
 import { consentRouter } from "./modules/consent/consent.router.js";
 import { integrityRouter } from "./modules/integrity/integrity.router.js";
 import { lessonPlansRouter } from "./modules/lesson-plans/lesson-plans.router.js";
+import { chatRouter } from "./modules/chat/chat.router.js";
 import { requestLogger } from "./middleware/requestLogger.js";
 import { errorHandler } from "./middleware/errorHandler.js";
 import { limiter } from "./middleware/rateLimiter.js";
@@ -69,6 +70,7 @@ api.use("/admin", adminRouter);
 api.use("/consent", consentRouter);
 api.use("/integrity", integrityRouter);
 api.use("/lesson-plans", lessonPlansRouter);
+api.use("/chat", chatRouter);
 
 app.use("/v1", api);
 

@@ -17,7 +17,8 @@ import {
   Eye,
   ChevronLeft,
   ChevronRight,
-  CheckCircle2
+  CheckCircle2,
+  Shield
 } from "lucide-react";
 
 // ─── Sophisticated Motion Variants ──────────────────────────────────────
@@ -159,7 +160,7 @@ export default function TeacherDashboardPage() {
           <motion.div variants={itemVariants}>
             <GlassCard className="!p-6">
               <h2 className="text-xs font-bold text-foreground-subtle uppercase tracking-widest mb-5 ml-2">Quick Actions</h2>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
                 <QuickAction
                   icon={<PlusCircle className="w-5 h-5" />}
                   label="Create Assignment"
@@ -181,6 +182,11 @@ export default function TeacherDashboardPage() {
                   label="Pending Grading"
                   href="/dashboard/teacher/grading"
                   badge={data?.pendingSubmissions}
+                />
+                <QuickAction
+                  icon={<Shield className="w-5 h-5" />}
+                  label="AI Integrity"
+                  href="/dashboard/teacher/integrity"
                 />
               </div>
             </GlassCard>

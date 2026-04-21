@@ -184,6 +184,44 @@ export function useSubmissionIntegrity(submissionId: string) {
   });
 }
 
+// ─── Class-wide integrity feed (teacher) ─────────────────────────────────
+
+export interface IntegrityFeedEntry {
+  id: string;
+  toolUsed: string;
+  promptText: string;
+  aiResponse: string;
+  flagReasons: string[];
+  flagDescriptions: string[];
+  promptLength: number;
+  responseLength: number;
+  source: string;
+  timestamp: string;
+  student: { id: string; name: string | null; email: string | null };
+  assignment: { id: string; title: string } | null;
+}
+
+export interface IntegrityFeedResponse {
+  logs: IntegrityFeedEntry[];
+  total: number;
+}
+
+export function useClassIntegrityFeed(
+  classId: string | undefined,
+  page = 1,
+  limit = 30,
+) {
+  return useQuery({
+    queryKey: ["integrity", "class", classId, page, limit],
+    queryFn: () =>
+      api.get<IntegrityFeedResponse>(
+        `/v1/integrity/class/${classId}?page=${page}&limit=${limit}`,
+      ),
+    enabled: !!classId,
+    staleTime: 30_000,
+  });
+}
+
 export function useGradeSubmission() {
   const qc = useQueryClient();
   return useMutation({

@@ -165,6 +165,194 @@ export async function handleSubmissionIntegrity(req: Request, res: Response) {
   }
 }
 
+// ── Admin / Principal: school-wide integrity feed ────────────────────────
+// Returns flagged-only interactions for every student that belongs to
+// the admin's school. Principals + admins share the "ADMIN" role — the
+// router guards this endpoint accordingly.
+
+export async function handleSchoolIntegrityFeed(req: Request, res: Response) {
+  const adminId = req.userId!;
+  const page = Number(req.query.page ?? 1);
+  const limit = Math.min(Number(req.query.limit ?? 30), 100);
+  const studentFilter = (req.query.studentId as string | undefined) ?? undefined;
+  const skip = (page - 1) * limit;
+
+  try {
+    const admin = await prisma.user.findUnique({
+      where: { id: adminId },
+      select: { schoolId: true },
+    });
+    if (!admin?.schoolId) {
+      return apiError(res, {
+        code: "FORBIDDEN",
+        message: "Your account is not linked to a school",
+        status: 403,
+      });
+    }
+
+    const schoolStudentIds = (
+      await prisma.user.findMany({
+        where: { schoolId: admin.schoolId, role: "STUDENT" },
+        select: { id: true },
+      })
+    ).map((s) => s.id);
+
+    if (schoolStudentIds.length === 0) {
+      return apiSuccess(res, { logs: [], total: 0 }, 200, {
+        page,
+        limit,
+        total: 0,
+      });
+    }
+
+    const where = {
+      studentId: studentFilter
+        ? { in: schoolStudentIds.filter((id) => id === studentFilter) }
+        : { in: schoolStudentIds },
+      isFlagged: true,
+    };
+
+    const [logs, total] = await Promise.all([
+      prisma.auditLog.findMany({
+        where,
+        orderBy: { timestamp: "desc" },
+        skip,
+        take: limit,
+        select: {
+          id: true,
+          toolUsed: true,
+          promptText: true,
+          aiResponse: true,
+          flagReasons: true,
+          promptLength: true,
+          responseLength: true,
+          source: true,
+          timestamp: true,
+          student: { select: { id: true, name: true, email: true } },
+          assignment: { select: { id: true, title: true } },
+        },
+      }),
+      prisma.auditLog.count({ where }),
+    ]);
+
+    return apiSuccess(
+      res,
+      {
+        logs: logs.map((log) => ({
+          ...log,
+          flagDescriptions: log.flagReasons.map(
+            (r) => FLAG_DESCRIPTIONS[r as keyof typeof FLAG_DESCRIPTIONS] ?? r,
+          ),
+        })),
+        total,
+      },
+      200,
+      { page, limit, total },
+    );
+  } catch {
+    return apiError(res, {
+      code: "INTERNAL_ERROR",
+      message: "Failed to load school integrity feed",
+      status: 500,
+    });
+  }
+}
+
+// ── Admin / Principal: full AI history for a single student ──────────────
+
+export async function handleStudentIntegrityHistory(
+  req: Request,
+  res: Response,
+) {
+  const adminId = req.userId!;
+  const { studentId } = req.params;
+  const page = Number(req.query.page ?? 1);
+  const limit = Math.min(Number(req.query.limit ?? 30), 100);
+  const skip = (page - 1) * limit;
+
+  try {
+    // Enforce: admin's school must match student's school.
+    const [admin, student] = await Promise.all([
+      prisma.user.findUnique({
+        where: { id: adminId },
+        select: { schoolId: true },
+      }),
+      prisma.user.findUnique({
+        where: { id: studentId },
+        select: { id: true, name: true, email: true, schoolId: true, role: true },
+      }),
+    ]);
+
+    if (!admin?.schoolId || !student) {
+      return apiError(res, {
+        code: "NOT_FOUND",
+        message: "Student not found",
+        status: 404,
+      });
+    }
+    if (student.schoolId !== admin.schoolId) {
+      return apiError(res, {
+        code: "FORBIDDEN",
+        message: "Student is not in your school",
+        status: 403,
+      });
+    }
+
+    const [logs, total, flaggedCount] = await Promise.all([
+      prisma.auditLog.findMany({
+        where: { studentId },
+        orderBy: { timestamp: "desc" },
+        skip,
+        take: limit,
+        select: {
+          id: true,
+          toolUsed: true,
+          promptText: true,
+          aiResponse: true,
+          flagReasons: true,
+          isFlagged: true,
+          promptLength: true,
+          responseLength: true,
+          source: true,
+          timestamp: true,
+          assignment: { select: { id: true, title: true } },
+        },
+      }),
+      prisma.auditLog.count({ where: { studentId } }),
+      prisma.auditLog.count({ where: { studentId, isFlagged: true } }),
+    ]);
+
+    return apiSuccess(
+      res,
+      {
+        student: {
+          id: student.id,
+          name: student.name,
+          email: student.email,
+        },
+        stats: {
+          total,
+          flagged: flaggedCount,
+        },
+        logs: logs.map((log) => ({
+          ...log,
+          flagDescriptions: log.flagReasons.map(
+            (r) => FLAG_DESCRIPTIONS[r as keyof typeof FLAG_DESCRIPTIONS] ?? r,
+          ),
+        })),
+      },
+      200,
+      { page, limit, total },
+    );
+  } catch {
+    return apiError(res, {
+      code: "INTERNAL_ERROR",
+      message: "Failed to load student history",
+      status: 500,
+    });
+  }
+}
+
 // ── Teacher: class-wide integrity feed (flagged-only) ────────────────────
 
 export async function handleClassIntegrityFeed(req: Request, res: Response) {

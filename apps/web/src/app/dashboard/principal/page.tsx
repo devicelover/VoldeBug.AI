@@ -169,7 +169,7 @@ export default function PrincipalDashboardPage() {
             <div className="w-14 h-14 rounded-2xl bg-[#0D1B2A] border border-[#1B2B40] flex items-center justify-center shadow-lg flex-shrink-0">
               <Shield className="w-7 h-7 text-sky-400" />
             </div>
-            <div>
+            <div className="flex-1">
               <p className="text-sm text-foreground-subtle font-medium mb-0.5">
                 {getGreeting()}, {userName}
               </p>
@@ -181,6 +181,36 @@ export default function PrincipalDashboardPage() {
                 {overview?.school?.name ?? "Loading…"}
               </p>
             </div>
+          </div>
+          <div className="mt-4 flex flex-wrap gap-2">
+            <a
+              href="/dashboard/principal/integrity"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-red-500/20 bg-red-500/5 px-3 py-1.5 text-xs font-medium text-red-300 hover:bg-red-500/10"
+            >
+              <ShieldAlert className="w-3.5 h-3.5" />
+              AI Integrity Feed
+            </a>
+            <a
+              href="/dashboard/principal/audit-logs"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.02] px-3 py-1.5 text-xs font-medium text-foreground-subtle hover:bg-white/[0.05]"
+            >
+              <Activity className="w-3.5 h-3.5" />
+              Full Audit Logs
+            </a>
+            <a
+              href="/dashboard/admin/users"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.02] px-3 py-1.5 text-xs font-medium text-foreground-subtle hover:bg-white/[0.05]"
+            >
+              <Users className="w-3.5 h-3.5" />
+              Manage Users
+            </a>
+            <a
+              href="/dashboard/admin/classes"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.02] px-3 py-1.5 text-xs font-medium text-foreground-subtle hover:bg-white/[0.05]"
+            >
+              <GraduationCap className="w-3.5 h-3.5" />
+              Manage Classes
+            </a>
           </div>
         </motion.div>
 
