@@ -18,7 +18,10 @@ import {
   handleRosterImport,
   handleAdminListTools,
   handleCreateTool,
+  handleUpdateTool,
   handleDeleteTool,
+  handleCreateClass,
+  handleInviteUser,
 } from "./admin.controller.js";
 
 const adminRouter = express.Router();
@@ -35,6 +38,7 @@ adminRouter.post("/roster-import", handleRosterImport);
 // Tool catalog
 adminRouter.get("/tools", handleAdminListTools);
 adminRouter.post("/tools", handleCreateTool);
+adminRouter.patch("/tools/:id", handleUpdateTool);
 adminRouter.delete("/tools/:id", handleDeleteTool);
 
 // Users
@@ -44,8 +48,12 @@ adminRouter.patch("/users/:id/role", handleUpdateUserRole);
 
 // Classes
 adminRouter.get("/classes", handleListClasses);
+adminRouter.post("/classes", handleCreateClass);
 adminRouter.patch("/classes/:id", handleUpdateClass);
 adminRouter.delete("/classes/:id", handleDeleteClass);
+
+// Single-user invite (vs the bulk CSV import)
+adminRouter.post("/users/invite", handleInviteUser);
 
 // Principal Dashboard
 adminRouter.get("/overview", handleGetSchoolOverview);

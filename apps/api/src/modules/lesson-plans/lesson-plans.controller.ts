@@ -188,6 +188,60 @@ export async function handleCreateLessonPlan(req: Request, res: Response) {
   }
 }
 
+// ─── Teacher: soft-delete own plan ───────────────────────────────────────
+// Plans authored by Voldebug faculty (authorId == null, isOfficial=true)
+// can only be removed by a system admin via the DB; teachers can't delete
+// them. This protects the seeded library.
+
+export async function handleDeleteLessonPlan(req: Request, res: Response) {
+  const userId = req.userId!;
+  const userRole = req.userRole!;
+  const { id } = req.params;
+  try {
+    const plan = await prisma.lessonPlan.findUnique({
+      where: { id },
+      select: { id: true, authorId: true, isOfficial: true },
+    });
+    if (!plan) {
+      return apiError(res, {
+        code: "NOT_FOUND",
+        message: "Lesson plan not found",
+        status: 404,
+      });
+    }
+    // Teachers can only delete their own. Admins can delete anything in
+    // their school. Official seeded plans are protected from teacher
+    // deletion to keep the library stable.
+    const isOwner = plan.authorId === userId;
+    const isAdmin = userRole === "ADMIN";
+    if (!isOwner && !isAdmin) {
+      return apiError(res, {
+        code: "FORBIDDEN",
+        message: "You can only delete plans you authored",
+        status: 403,
+      });
+    }
+    if (plan.isOfficial && !isAdmin) {
+      return apiError(res, {
+        code: "FORBIDDEN",
+        message: "Official Voldebug plans can't be deleted by teachers",
+        status: 403,
+      });
+    }
+    await prisma.lessonPlan.update({
+      where: { id },
+      data: { deletedAt: new Date() },
+    });
+    return apiSuccess(res, { id });
+  } catch (err) {
+    return apiError(res, {
+      code: "DELETE_FAILED",
+      message: (err as Error).message,
+      status: 400,
+    });
+  }
+}
+
 // ─── Teacher: mark as "used" (bump counter, return prefill payload) ──────
 
 export async function handleMarkLessonPlanUsed(req: Request, res: Response) {

@@ -13,7 +13,9 @@ import {
 import {
   useAdminTools,
   useCreateTool,
+  useUpdateTool,
   useDeleteTool,
+  type AdminTool,
 } from "@web/hooks/use-admin";
 
 const CATEGORIES = [
@@ -27,7 +29,29 @@ const CATEGORIES = [
 export default function AdminToolsPage() {
   const tools = useAdminTools();
   const createMut = useCreateTool();
+  const updateMut = useUpdateTool();
   const deleteMut = useDeleteTool();
+
+  // Per-row inline edit — single field at a time, lightweight. We allow
+  // the website URL to be edited from the list because that's the field
+  // most likely to need a quick fix after first creating a tool. For the
+  // full content (howTo / prompts / tips) we delete and re-create — a
+  // proper modal editor is the next iteration.
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editUrl, setEditUrl] = useState("");
+
+  function beginEdit(t: AdminTool) {
+    setEditingId(t.id);
+    setEditUrl(t.websiteUrl ?? "");
+  }
+  async function saveEdit(id: string) {
+    try {
+      await updateMut.mutateAsync({ id, websiteUrl: editUrl.trim() || undefined });
+      setEditingId(null);
+    } catch {
+      /* surfaced via updateMut.error */
+    }
+  }
 
   const [showForm, setShowForm] = useState(false);
   const [name, setName] = useState("");
@@ -322,16 +346,56 @@ export default function AdminToolsPage() {
                     {t.subjects.length > 0 && ` · ${t.subjects.join(", ")}`}
                     {t.usageCount > 0 && ` · ${t.usageCount} uses`}
                   </p>
+                  {editingId === t.id ? (
+                    <div className="mt-2 flex gap-1">
+                      <input
+                        type="url"
+                        value={editUrl}
+                        onChange={(e) => setEditUrl(e.target.value)}
+                        placeholder="https://…"
+                        className="input-base flex-1 text-xs"
+                      />
+                      <button
+                        onClick={() => saveEdit(t.id)}
+                        disabled={updateMut.isPending}
+                        className="rounded bg-accent px-2 py-1 text-xs font-semibold text-white"
+                      >
+                        Save
+                      </button>
+                      <button
+                        onClick={() => setEditingId(null)}
+                        className="rounded border border-card-border px-2 py-1 text-xs"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  ) : t.websiteUrl ? (
+                    <a
+                      href={t.websiteUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-[11px] text-accent-light hover:underline"
+                    >
+                      {t.websiteUrl}
+                    </a>
+                  ) : (
+                    <button
+                      onClick={() => beginEdit(t)}
+                      className="text-[11px] text-amber-600 hover:underline"
+                    >
+                      + Add website URL
+                    </button>
+                  )}
                 </div>
-                <a
-                  href={t.logoUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-foreground-subtle hover:text-foreground"
-                  title="View logo"
-                >
-                  <ExternalLink className="h-4 w-4" />
-                </a>
+                {editingId !== t.id && (
+                  <button
+                    onClick={() => beginEdit(t)}
+                    className="text-foreground-subtle hover:text-foreground"
+                    title="Edit website URL"
+                  >
+                    Edit
+                  </button>
+                )}
                 <button
                   onClick={() => onDelete(t.id, t.name)}
                   disabled={deleteMut.isPending}

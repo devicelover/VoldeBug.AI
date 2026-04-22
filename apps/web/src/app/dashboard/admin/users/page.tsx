@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import {
   Users,
   ChevronLeft,
@@ -10,10 +10,14 @@ import {
   Shield,
   GraduationCap,
   User as UserIcon,
+  UserPlus,
+  Copy,
+  CheckCircle2,
 } from "lucide-react";
 import {
   useAdminUsers,
   useUpdateUserRole,
+  useInviteUser,
   type AdminUser,
 } from "@web/hooks/use-admin";
 
@@ -49,6 +53,41 @@ export default function AdminUsersPage() {
 
   const { data, isLoading } = useAdminUsers({ role, q, page, limit: 50 });
   const updateRole = useUpdateUserRole();
+  const invite = useInviteUser();
+
+  const [showInvite, setShowInvite] = useState(false);
+  const [iName, setIName] = useState("");
+  const [iEmail, setIEmail] = useState("");
+  const [iRole, setIRole] = useState<"STUDENT" | "TEACHER" | "ADMIN">("STUDENT");
+  const [iGrade, setIGrade] = useState("");
+  const [tempPassword, setTempPassword] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  async function onInvite() {
+    try {
+      const res = await invite.mutateAsync({
+        name: iName.trim(),
+        email: iEmail.trim(),
+        role: iRole,
+        gradeLevel: iGrade ? Number(iGrade) : undefined,
+      });
+      setTempPassword(res.tempPassword);
+      setIName("");
+      setIEmail("");
+      setIGrade("");
+    } catch {
+      /* ignore */
+    }
+  }
+
+  async function copyTemp() {
+    if (!tempPassword) return;
+    try {
+      await navigator.clipboard.writeText(tempPassword);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2500);
+    } catch { /* ignore */ }
+  }
 
   async function changeRole(u: AdminUser, next: string) {
     if (u.role === next) return;
@@ -81,14 +120,130 @@ export default function AdminUsersPage() {
           <div className="rounded-xl bg-accent/10 p-2 text-accent-light">
             <Users className="h-6 w-6" />
           </div>
-          <div>
+          <div className="flex-1">
             <h1 className="font-display text-2xl font-bold">User management</h1>
             <p className="text-sm text-foreground-muted">
-              Everyone in your school. Change roles, search, filter.
+              Everyone in your school. Change roles, search, filter, invite.
             </p>
           </div>
+          <button
+            onClick={() => setShowInvite((v) => !v)}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-white hover:bg-accent-light"
+          >
+            <UserPlus className="h-3.5 w-3.5" />
+            Invite user
+          </button>
         </div>
       </div>
+
+      <AnimatePresence>
+        {showInvite && (
+          <motion.section
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            exit={{ opacity: 0, height: 0 }}
+            className="card space-y-3 overflow-hidden p-5"
+          >
+            <h2 className="text-xs font-bold uppercase tracking-widest text-foreground-subtle">
+              Invite single user
+            </h2>
+            <div className="grid gap-3 md:grid-cols-2">
+              <label className="block text-sm">
+                <span className="font-medium">Name</span>
+                <input
+                  type="text"
+                  className="input-base mt-1 w-full"
+                  value={iName}
+                  onChange={(e) => setIName(e.target.value)}
+                />
+              </label>
+              <label className="block text-sm">
+                <span className="font-medium">Email</span>
+                <input
+                  type="email"
+                  className="input-base mt-1 w-full"
+                  value={iEmail}
+                  onChange={(e) => setIEmail(e.target.value)}
+                />
+              </label>
+              <label className="block text-sm">
+                <span className="font-medium">Role</span>
+                <select
+                  className="input-base mt-1 w-full"
+                  value={iRole}
+                  onChange={(e) => setIRole(e.target.value as typeof iRole)}
+                >
+                  {ROLES.map((r) => (
+                    <option key={r} value={r}>
+                      {r}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {iRole === "STUDENT" && (
+                <label className="block text-sm">
+                  <span className="font-medium">Class (optional)</span>
+                  <select
+                    className="input-base mt-1 w-full"
+                    value={iGrade}
+                    onChange={(e) => setIGrade(e.target.value)}
+                  >
+                    <option value="">—</option>
+                    {Array.from({ length: 12 }, (_, i) => i + 1).map((g) => (
+                      <option key={g} value={g}>
+                        Class {g}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+            </div>
+            {invite.isError && (
+              <p className="text-sm text-rose-600">
+                {(invite.error as Error)?.message ?? "Couldn’t invite."}
+              </p>
+            )}
+            {tempPassword && (
+              <div className="rounded-lg border border-emerald-300 bg-emerald-50 p-3 text-sm dark:border-emerald-800/50 dark:bg-emerald-900/20">
+                <p className="mb-2 inline-flex items-center gap-1 font-semibold text-emerald-700">
+                  <CheckCircle2 className="h-4 w-4" />
+                  User created. Share this temporary password with them:
+                </p>
+                <div className="flex items-center gap-2">
+                  <code className="flex-1 truncate rounded bg-surface p-1.5 font-mono text-xs">
+                    {tempPassword}
+                  </code>
+                  <button
+                    onClick={copyTemp}
+                    className="rounded border border-card-border bg-background px-2 py-1 text-xs hover:bg-surface"
+                  >
+                    <Copy className="mr-1 inline h-3 w-3" />
+                    {copied ? "Copied!" : "Copy"}
+                  </button>
+                </div>
+              </div>
+            )}
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => {
+                  setShowInvite(false);
+                  setTempPassword(null);
+                }}
+                className="rounded-lg border border-card-border px-3 py-1.5 text-sm hover:bg-surface"
+              >
+                Done
+              </button>
+              <button
+                onClick={onInvite}
+                disabled={invite.isPending || !iName.trim() || !iEmail.trim()}
+                className="rounded-lg bg-accent px-3 py-1.5 text-sm font-semibold text-white hover:bg-accent-light disabled:opacity-50"
+              >
+                {invite.isPending ? "Inviting…" : "Send invite"}
+              </button>
+            </div>
+          </motion.section>
+        )}
+      </AnimatePresence>
 
       {/* Filters */}
       <motion.section

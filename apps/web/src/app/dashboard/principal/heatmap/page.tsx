@@ -2,8 +2,8 @@
 
 import Link from "next/link";
 import { motion } from "framer-motion";
-import { useMemo } from "react";
-import { ChevronLeft, Activity, AlertTriangle } from "lucide-react";
+import { useMemo, useState } from "react";
+import { ChevronLeft, Activity, AlertTriangle, Filter } from "lucide-react";
 import { usePrincipalHeatmap, type HeatmapDay } from "@web/hooks/use-admin";
 
 // Bucketize day counts into 0-4 intensity for cell shading.
@@ -27,11 +27,25 @@ const SHADES = [
 
 export default function PrincipalHeatmapPage() {
   const { data, isLoading, isError } = usePrincipalHeatmap();
+  const [windowDays, setWindowDays] = useState<30 | 60 | 90>(60);
+  const [flaggedOnly, setFlaggedOnly] = useState(false);
+
+  // Client-side filtering — keeps the API endpoint simple. Server returns
+  // 60 days; we trim the window down on demand.
+  const filteredDays = useMemo(() => {
+    if (!data?.days) return [];
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - windowDays);
+    cutoff.setHours(0, 0, 0, 0);
+    let out = data.days.filter((d) => new Date(d.date) >= cutoff);
+    if (flaggedOnly) out = out.map((d) => ({ ...d, total: d.flagged }));
+    return out;
+  }, [data, windowDays, flaggedOnly]);
 
   const grid = useMemo(() => {
-    const days = data?.days ?? [];
+    const days = filteredDays;
     if (days.length === 0) return null;
-    const maxTotal = Math.max(...days.map((d) => d.total));
+    const maxTotal = Math.max(...days.map((d) => d.total), 1);
     // Group by ISO week. Each cell is one day; columns = weeks; rows = weekday.
     const byWeek = new Map<string, HeatmapDay[]>();
     for (const d of days) {
@@ -48,15 +62,15 @@ export default function PrincipalHeatmapPage() {
       byWeek.get(key)!.push(d);
     }
     return { weeks: Array.from(byWeek.entries()), maxTotal };
-  }, [data]);
+  }, [filteredDays]);
 
   const totals = useMemo(() => {
-    if (!data) return { total: 0, flagged: 0 };
+    if (!filteredDays.length) return { total: 0, flagged: 0 };
     return {
-      total: data.days.reduce((s, d) => s + d.total, 0),
-      flagged: data.days.reduce((s, d) => s + d.flagged, 0),
+      total: filteredDays.reduce((s, d) => s + d.total, 0),
+      flagged: filteredDays.reduce((s, d) => s + d.flagged, 0),
     };
-  }, [data]);
+  }, [filteredDays]);
 
   return (
     <div className="mx-auto max-w-6xl space-y-5 p-6 md:p-10">
@@ -83,6 +97,40 @@ export default function PrincipalHeatmapPage() {
           </div>
         </div>
       </div>
+
+      {/* Filters */}
+      <motion.section
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        className="card flex flex-wrap items-center gap-3 p-3"
+      >
+        <Filter className="h-3.5 w-3.5 text-foreground-subtle" />
+        <span className="text-xs text-foreground-muted">Window</span>
+        <div className="inline-flex rounded-lg border border-card-border bg-surface/40 p-0.5">
+          {([30, 60, 90] as const).map((d) => (
+            <button
+              key={d}
+              onClick={() => setWindowDays(d)}
+              className={`rounded-md px-2.5 py-1 text-xs font-medium ${
+                windowDays === d
+                  ? "bg-accent text-white"
+                  : "text-foreground-muted"
+              }`}
+            >
+              {d}d
+            </button>
+          ))}
+        </div>
+        <label className="ml-2 inline-flex cursor-pointer items-center gap-1.5 text-xs">
+          <input
+            type="checkbox"
+            checked={flaggedOnly}
+            onChange={(e) => setFlaggedOnly(e.target.checked)}
+            className="h-3.5 w-3.5 accent-amber-500"
+          />
+          Flagged only
+        </label>
+      </motion.section>
 
       {/* Top stats */}
       {data && (

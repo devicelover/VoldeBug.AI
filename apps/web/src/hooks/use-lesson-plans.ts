@@ -134,3 +134,14 @@ export function useMarkPlanUsed() {
     },
   });
 }
+
+export function useDeleteLessonPlan() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (planId: string) =>
+      api.delete(`/v1/lesson-plans/${planId}`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["lesson-plans"] });
+    },
+  });
+}

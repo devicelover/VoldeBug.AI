@@ -21,7 +21,9 @@ import {
 import {
   useLessonPlan,
   useMarkPlanUsed,
+  useDeleteLessonPlan,
 } from "@web/hooks/use-lesson-plans";
+import { useMe } from "@web/hooks/use-me";
 
 // ─── Page ─────────────────────────────────────────────────────────────────
 
@@ -29,8 +31,33 @@ export default function LessonPlanDetailPage() {
   const params = useParams<{ slug: string }>();
   const router = useRouter();
   const { data: plan, isLoading, isError } = useLessonPlan(params.slug);
+  const me = useMe();
   const usePlan = useMarkPlanUsed();
+  const deletePlan = useDeleteLessonPlan();
   const [error, setError] = useState<string | null>(null);
+
+  async function onDelete() {
+    if (!plan) return;
+    const confirmed = window.confirm(
+      `Delete "${plan.title}"? This can't be undone.`,
+    );
+    if (!confirmed) return;
+    try {
+      await deletePlan.mutateAsync(plan.id);
+      router.push("/dashboard/lesson-plans");
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
+
+  const canDelete = !!(
+    plan &&
+    me.data &&
+    // Teacher owns it, OR admin, OR admin && not official (admin can
+    // clean up unofficial user content even if not authored by them).
+    ((plan.author?.id === me.data.id && !plan.isOfficial) ||
+      (me.data.role === "ADMIN" && !plan.isOfficial))
+  );
 
   async function onUse() {
     if (!plan) return;
@@ -139,23 +166,34 @@ export default function LessonPlanDetailPage() {
             from now).
           </p>
         </div>
-        <button
-          onClick={onUse}
-          disabled={usePlan.isPending}
-          className="inline-flex items-center justify-center gap-2 rounded-xl bg-accent px-4 py-2.5 text-sm font-semibold text-white shadow-xl shadow-accent/20 hover:bg-accent-light disabled:opacity-60"
-        >
-          {usePlan.isPending ? (
-            <>
-              <div className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
-              Preparing…
-            </>
-          ) : (
-            <>
-              <PlayCircle className="h-4 w-4" />
-              Use this plan
-            </>
+        <div className="flex flex-wrap gap-2">
+          <button
+            onClick={onUse}
+            disabled={usePlan.isPending}
+            className="inline-flex items-center justify-center gap-2 rounded-xl bg-accent px-4 py-2.5 text-sm font-semibold text-white shadow-xl shadow-accent/20 hover:bg-accent-light disabled:opacity-60"
+          >
+            {usePlan.isPending ? (
+              <>
+                <div className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                Preparing…
+              </>
+            ) : (
+              <>
+                <PlayCircle className="h-4 w-4" />
+                Use this plan
+              </>
+            )}
+          </button>
+          {canDelete && (
+            <button
+              onClick={onDelete}
+              disabled={deletePlan.isPending}
+              className="inline-flex items-center gap-1.5 rounded-xl border border-rose-300 bg-rose-50 px-4 py-2.5 text-sm font-medium text-rose-700 hover:bg-rose-100 disabled:opacity-50 dark:border-rose-800/50 dark:bg-rose-900/20 dark:text-rose-300"
+            >
+              {deletePlan.isPending ? "Deleting…" : "Delete plan"}
+            </button>
           )}
-        </button>
+        </div>
       </motion.section>
 
       {error && (

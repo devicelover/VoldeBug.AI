@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import {
   School,
   ChevronLeft,
@@ -10,10 +10,13 @@ import {
   Users,
   FileText,
   Trash2,
+  Plus,
+  CheckCircle2,
 } from "lucide-react";
 import {
   useAdminClasses,
   useDeleteClass,
+  useCreateClass,
   type AdminClass,
 } from "@web/hooks/use-admin";
 
@@ -21,6 +24,28 @@ export default function AdminClassesPage() {
   const [page, setPage] = useState(1);
   const { data, isLoading } = useAdminClasses({ page, limit: 50 });
   const deleteClass = useDeleteClass();
+  const createClass = useCreateClass();
+
+  const [showForm, setShowForm] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [teacherEmail, setTeacherEmail] = useState("");
+  const [createdBanner, setCreatedBanner] = useState<string | null>(null);
+
+  async function onCreate() {
+    try {
+      const created = await createClass.mutateAsync({
+        name: newName.trim(),
+        teacherEmail: teacherEmail.trim() || undefined,
+      });
+      setNewName("");
+      setTeacherEmail("");
+      setShowForm(false);
+      setCreatedBanner(`Class "${created.name}" created.`);
+      setTimeout(() => setCreatedBanner(null), 3500);
+    } catch {
+      /* surfaced via createClass.error */
+    }
+  }
 
   async function removeClass(c: AdminClass) {
     const confirmed = window.confirm(
@@ -48,16 +73,91 @@ export default function AdminClassesPage() {
           <div className="rounded-xl bg-info/10 p-2 text-info">
             <School className="h-6 w-6" />
           </div>
-          <div>
+          <div className="flex-1">
             <h1 className="font-display text-2xl font-bold">Class management</h1>
             <p className="text-sm text-foreground-muted">
-              All classes in your school. Assigning a teacher or renaming is
-              done in the teacher&rsquo;s own dashboard — this page is for
-              roll-up and cleanup.
+              Create classes, assign teachers, remove old ones.
             </p>
           </div>
+          <button
+            onClick={() => setShowForm((v) => !v)}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-white hover:bg-accent-light"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            New class
+          </button>
         </div>
       </div>
+
+      {createdBanner && (
+        <motion.div
+          initial={{ opacity: 0, y: -6 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="card flex items-center gap-2 border-emerald-300 bg-emerald-50 p-3 text-sm text-emerald-700 dark:border-emerald-800/50 dark:bg-emerald-900/20 dark:text-emerald-200"
+        >
+          <CheckCircle2 className="h-4 w-4" />
+          {createdBanner}
+        </motion.div>
+      )}
+
+      <AnimatePresence>
+        {showForm && (
+          <motion.section
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            exit={{ opacity: 0, height: 0 }}
+            className="card space-y-3 overflow-hidden p-5"
+          >
+            <h2 className="text-xs font-bold uppercase tracking-widest text-foreground-subtle">
+              Create class
+            </h2>
+            <label className="block text-sm">
+              <span className="font-medium">Class name</span>
+              <input
+                type="text"
+                className="input-base mt-1 w-full"
+                value={newName}
+                onChange={(e) => setNewName(e.target.value)}
+                placeholder="e.g. Class 9-A Science"
+              />
+            </label>
+            <label className="block text-sm">
+              <span className="font-medium">Teacher email (optional)</span>
+              <input
+                type="email"
+                className="input-base mt-1 w-full"
+                value={teacherEmail}
+                onChange={(e) => setTeacherEmail(e.target.value)}
+                placeholder="leave blank to assign yourself"
+              />
+              <p className="mt-1 text-[11px] text-foreground-subtle">
+                The teacher must already exist as a TEACHER or ADMIN in your
+                school. Use Bulk roster import or Invite user first if not.
+              </p>
+            </label>
+            {createClass.isError && (
+              <p className="text-sm text-rose-600">
+                {(createClass.error as Error)?.message ?? "Couldn’t create."}
+              </p>
+            )}
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => setShowForm(false)}
+                className="rounded-lg border border-card-border px-3 py-1.5 text-sm hover:bg-surface"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={onCreate}
+                disabled={createClass.isPending || !newName.trim()}
+                className="rounded-lg bg-accent px-3 py-1.5 text-sm font-semibold text-white hover:bg-accent-light disabled:opacity-50"
+              >
+                {createClass.isPending ? "Creating…" : "Create class"}
+              </button>
+            </div>
+          </motion.section>
+        )}
+      </AnimatePresence>
 
       <section className="card overflow-hidden">
         {isLoading ? (

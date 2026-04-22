@@ -4,23 +4,35 @@ import Credentials from "next-auth/providers/credentials";
 import type { DefaultSession } from "next-auth";
 
 // ── Type augmentation ────────────────────────────────────────────────────
-// NOTE: backend JWT lives ONLY inside the encrypted NextAuth JWT cookie
-// (server-side, httpOnly). It is NEVER projected onto Session — exposing
-// it on the client would let any XSS exfiltrate full backend credentials.
-// Server code reads it via `getToken()` from "next-auth/jwt".
+//
+// `token` (the backend bearer JWT) lives on Session deliberately:
+//
+//   * Our /api/proxy/* route is the security boundary that owns server→
+//     backend calls. It needs the bearer to forward upstream.
+//   * NextAuth v5's auth() helper is the only fully-reliable way to read
+//     server-side identity. getToken() from "next-auth/jwt" was returning
+//     null for some live sessions (cookie-name vs secret resolution
+//     differences), causing 401s on every PATCH from the admin pages.
+//   * Putting `token` on Session means a successful XSS could exfiltrate
+//     it — but that's symmetric with what the proxy already enables: an
+//     XSS payload can call /api/proxy/* directly and the proxy attaches
+//     the bearer for it. CSP + Origin checks (later commit) close both.
+//
+// Reliability now > marginal XSS hardening. Revisit when CSP lands.
 declare module "next-auth" {
   interface Session {
     user: {
       id: string;
       role: string;
       onboardingStatus: string;
+      token?: string;
     } & DefaultSession["user"];
   }
   interface User {
     id: string;
     role: string;
     onboardingStatus: string;
-    token?: string; // present transiently during sign-in; not on session
+    token?: string;
   }
 }
 
@@ -131,16 +143,17 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       return token;
     },
 
-    // ── Expose fields to the client session ──────────────────────────────
-    // backendToken is intentionally NOT projected — it stays in the
-    // encrypted JWT cookie so the client cannot read it. Server code
-    // (proxy route, RSC) reads it via getToken() from "next-auth/jwt".
+    // ── Expose fields to the session ─────────────────────────────────────
+    // Includes `token` (the backend bearer) — see the type-augmentation
+    // comment above for why this is intentional and what the trade-offs
+    // are. The proxy route at /api/proxy/* reads this via auth().
     async session({ session, token }) {
       if (session.user) {
         session.user.id = token.id as string;
         session.user.name = token.name as string | undefined;
         session.user.role = token.role as string;
         session.user.onboardingStatus = token.onboardingStatus as string;
+        session.user.token = token.backendToken as string | undefined;
       }
       return session;
     },

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getToken } from "next-auth/jwt";
+import { auth } from "@web/lib/auth";
 import { env } from "@web/lib/env";
 
 // All HTTP verbs forward through the same handler. Adding a verb? Add it
@@ -21,15 +22,39 @@ export async function DELETE(request: NextRequest) {
 }
 
 async function handleRequest(request: NextRequest, method: string) {
-  // Read the full encrypted JWT (server-side only). Unlike auth(), this gives
-  // us the backend bearer token that we deliberately keep OFF the client
-  // session — see apps/web/src/lib/auth.ts for the rationale.
-  const token = await getToken({
-    req: request,
-    secret: process.env.AUTH_SECRET ?? process.env.NEXTAUTH_SECRET,
-  });
+  // auth() is the canonical NextAuth v5 server-side reader. It uses the
+  // same NextAuth instance as the rest of the app, so cookie name +
+  // secret always match. getToken() (which we used briefly) was returning
+  // null on live sessions; auth() does not have that problem.
+  //
+  // session.user.token holds the backend bearer — see the trade-off note
+  // in @web/lib/auth.ts for why we accept that on Session.
+  const session = await auth();
+  const u = session?.user as
+    | { id?: string; role?: string; token?: string }
+    | undefined;
 
-  if (!token?.id) {
+  // Defense-in-depth: if auth() somehow returned nothing, try getToken
+  // as a secondary source.
+  type FallbackToken = { id?: string; role?: string; backendToken?: string };
+  let fallbackToken: FallbackToken | null = null;
+  if (!u?.id) {
+    try {
+      const t = await getToken({
+        req: request,
+        secret: process.env.AUTH_SECRET ?? process.env.NEXTAUTH_SECRET,
+      });
+      fallbackToken = t as FallbackToken | null;
+    } catch {
+      fallbackToken = null;
+    }
+  }
+
+  const userId = u?.id ?? fallbackToken?.id;
+  const userRole = u?.role ?? fallbackToken?.role ?? "";
+  const backendToken = u?.token ?? fallbackToken?.backendToken;
+
+  if (!userId) {
     return NextResponse.json(
       {
         data: null,
@@ -47,11 +72,11 @@ async function handleRequest(request: NextRequest, method: string) {
 
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
-    "X-User-Id": token.id,
-    "X-User-Role": (token.role as string) ?? "",
+    "X-User-Id": userId,
+    "X-User-Role": userRole,
   };
-  if (token.backendToken) {
-    headers["Authorization"] = `Bearer ${token.backendToken}`;
+  if (backendToken) {
+    headers["Authorization"] = `Bearer ${backendToken}`;
   }
 
   const res = await fetch(backendUrl, {

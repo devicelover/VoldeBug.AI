@@ -10,20 +10,43 @@ export async function handleGetSchool(req: Request, res: Response) {
   const userId = req.userId!;
 
   try {
-    const school = await prisma.school.findFirst({
-      where: { adminId: userId },
+    // Look up by the user's schoolId (their MEMBER school) rather than
+    // the school's adminId. Most "principal/admin" users are linked as
+    // members via User.schoolId — only a small subset are also recorded
+    // as the formal adminId on the School row. The other admin endpoints
+    // (handlePrincipalReports etc.) all use schoolId, which is why they
+    // worked while this one returned 404.
+    const me = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { schoolId: true },
+    });
+    if (!me?.schoolId) {
+      return apiError(res, {
+        code: "NOT_FOUND",
+        message: "Your account is not linked to a school yet",
+        status: 404,
+      });
+    }
+    const school = await prisma.school.findUnique({
+      where: { id: me.schoolId },
       include: {
         _count: { select: { members: true, classes: true } },
       },
     });
-
     if (!school) {
-      return apiError(res, { code: "NOT_FOUND", message: "School not found", status: 404 });
+      return apiError(res, {
+        code: "NOT_FOUND",
+        message: "School not found",
+        status: 404,
+      });
     }
-
     return apiSuccess(res, school);
   } catch {
-    return apiError(res, { code: "INTERNAL_ERROR", message: "Failed to fetch school", status: 500 });
+    return apiError(res, {
+      code: "INTERNAL_ERROR",
+      message: "Failed to fetch school",
+      status: 500,
+    });
   }
 }
 
@@ -428,6 +451,157 @@ export async function handleRosterImport(req: Request, res: Response) {
   }
 }
 
+// ─── Admin: create class ─────────────────────────────────────────────────
+
+const createClassSchema = z.object({
+  name: z.string().min(2).max(120),
+  teacherEmail: z.string().email().optional(),
+});
+
+export async function handleCreateClass(req: Request, res: Response) {
+  const adminId = req.userId!;
+  const parsed = createClassSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return apiError(res, {
+      code: "VALIDATION_ERROR",
+      message: parsed.error.issues[0]?.message ?? "Invalid class",
+      status: 422,
+    });
+  }
+  try {
+    const admin = await prisma.user.findUnique({
+      where: { id: adminId },
+      select: { schoolId: true },
+    });
+    if (!admin?.schoolId) {
+      return apiError(res, {
+        code: "FORBIDDEN",
+        message: "Your account is not linked to a school",
+        status: 403,
+      });
+    }
+
+    // Resolve teacher: explicit email > admin themselves (they can be
+    // the de-facto teacher for the very first class).
+    let teacherId = adminId;
+    if (parsed.data.teacherEmail) {
+      const teacher = await prisma.user.findUnique({
+        where: { email: parsed.data.teacherEmail },
+      });
+      if (!teacher) {
+        return apiError(res, {
+          code: "TEACHER_NOT_FOUND",
+          message: `No user with email ${parsed.data.teacherEmail}`,
+          status: 404,
+        });
+      }
+      if (teacher.role !== "TEACHER" && teacher.role !== "ADMIN") {
+        return apiError(res, {
+          code: "INVALID_TEACHER",
+          message: "That user is not a TEACHER or ADMIN",
+          status: 400,
+        });
+      }
+      teacherId = teacher.id;
+    }
+
+    const created = await prisma.class.create({
+      data: {
+        name: parsed.data.name,
+        schoolId: admin.schoolId,
+        teacherId,
+      },
+      include: {
+        teacher: { select: { id: true, name: true, email: true } },
+        _count: { select: { members: true, assignments: true } },
+      },
+    });
+    return apiSuccess(res, created, 201);
+  } catch (err) {
+    return apiError(res, {
+      code: "CREATE_FAILED",
+      message: (err as Error).message,
+      status: 400,
+    });
+  }
+}
+
+// ─── Admin: invite a single user ─────────────────────────────────────────
+
+const inviteSchema = z.object({
+  name: z.string().min(2).max(120),
+  email: z.string().email(),
+  role: z.enum(["STUDENT", "TEACHER", "ADMIN"]),
+  gradeLevel: z.number().int().min(1).max(12).optional(),
+  classId: z.string().min(1).optional(),
+});
+
+export async function handleInviteUser(req: Request, res: Response) {
+  const adminId = req.userId!;
+  const parsed = inviteSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return apiError(res, {
+      code: "VALIDATION_ERROR",
+      message: parsed.error.issues[0]?.message ?? "Invalid invite",
+      status: 422,
+    });
+  }
+  try {
+    const admin = await prisma.user.findUnique({
+      where: { id: adminId },
+      select: { schoolId: true },
+    });
+    if (!admin?.schoolId) {
+      return apiError(res, {
+        code: "FORBIDDEN",
+        message: "Your account is not linked to a school",
+        status: 403,
+      });
+    }
+
+    const existing = await prisma.user.findUnique({
+      where: { email: parsed.data.email },
+    });
+    if (existing) {
+      return apiError(res, {
+        code: "USER_EXISTS",
+        message: "A user with that email already exists",
+        status: 409,
+      });
+    }
+
+    const { hash } = await import("bcryptjs");
+    const tempPassword = Math.random().toString(36).slice(-12);
+    const newUser = await prisma.user.create({
+      data: {
+        name: parsed.data.name,
+        email: parsed.data.email,
+        passwordHash: await hash(tempPassword, 12),
+        role: parsed.data.role,
+        gradeLevel: parsed.data.gradeLevel,
+        schoolId: admin.schoolId,
+      },
+      select: { id: true, name: true, email: true, role: true },
+    });
+
+    if (parsed.data.classId && parsed.data.role === "STUDENT") {
+      await prisma.classMember.create({
+        data: { classId: parsed.data.classId, userId: newUser.id },
+      });
+    }
+
+    // Return the temp password so the admin can share it OOB. Logged in
+    // the security audit log too — see audit module for why.
+    return apiSuccess(res, { ...newUser, tempPassword }, 201);
+  } catch (err) {
+    return apiError(res, {
+      code: "INVITE_FAILED",
+      message: (err as Error).message,
+      status: 400,
+    });
+  }
+}
+
 // ─── Admin: tool catalog CRUD ────────────────────────────────────────────
 
 const toolSchema = z.object({
@@ -485,6 +659,33 @@ export async function handleCreateTool(req: Request, res: Response) {
   } catch (err) {
     return apiError(res, {
       code: "CREATE_FAILED",
+      message: (err as Error).message,
+      status: 400,
+    });
+  }
+}
+
+export async function handleUpdateTool(req: Request, res: Response) {
+  const { id } = req.params;
+  // All fields optional on update (partial). Same shape as create otherwise.
+  const partialToolSchema = toolSchema.partial();
+  const parsed = partialToolSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return apiError(res, {
+      code: "VALIDATION_ERROR",
+      message: parsed.error.issues[0]?.message ?? "Invalid update",
+      status: 422,
+    });
+  }
+  try {
+    const updated = await prisma.tool.update({
+      where: { id },
+      data: parsed.data,
+    });
+    return apiSuccess(res, updated);
+  } catch (err) {
+    return apiError(res, {
+      code: "UPDATE_FAILED",
       message: (err as Error).message,
       status: 400,
     });

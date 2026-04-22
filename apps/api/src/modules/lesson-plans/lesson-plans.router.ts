@@ -5,6 +5,7 @@ import {
   handleGetLessonPlan,
   handleCreateLessonPlan,
   handleMarkLessonPlanUsed,
+  handleDeleteLessonPlan,
 } from "./lesson-plans.controller.js";
 
 const lessonPlansRouter = express.Router();
@@ -29,6 +30,14 @@ lessonPlansRouter.post(
   "/:id/use",
   requireRole("TEACHER", "ADMIN"),
   handleMarkLessonPlanUsed,
+);
+
+// Author teachers can soft-delete their own plans; admins can delete any.
+// Official seeded plans are protected at the controller level.
+lessonPlansRouter.delete(
+  "/:id",
+  requireRole("TEACHER", "ADMIN"),
+  handleDeleteLessonPlan,
 );
 
 export { lessonPlansRouter };

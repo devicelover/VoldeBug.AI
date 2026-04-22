@@ -83,6 +83,38 @@ export function useDeleteClass() {
   });
 }
 
+export function useCreateClass() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { name: string; teacherEmail?: string }) =>
+      api.post<AdminClass>("/v1/admin/classes", input as Record<string, unknown>),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["admin", "classes"] }),
+  });
+}
+
+export interface InviteResult {
+  id: string;
+  name: string;
+  email: string;
+  role: string;
+  tempPassword: string;
+}
+
+export function useInviteUser() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: {
+      name: string;
+      email: string;
+      role: "STUDENT" | "TEACHER" | "ADMIN";
+      gradeLevel?: number;
+      classId?: string;
+    }) =>
+      api.post<InviteResult>("/v1/admin/users/invite", input as Record<string, unknown>),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["admin", "users"] }),
+  });
+}
+
 // ─── Types ────────────────────────────────────────────────────────────────
 
 export interface SchoolOverview {
@@ -340,6 +372,15 @@ export function useCreateTool() {
   return useMutation({
     mutationFn: (input: Partial<AdminTool>) =>
       api.post<AdminTool>("/v1/admin/tools", input as Record<string, unknown>),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["admin", "tools"] }),
+  });
+}
+
+export function useUpdateTool() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, ...input }: Partial<AdminTool> & { id: string }) =>
+      api.patch<AdminTool>(`/v1/admin/tools/${id}`, input as Record<string, unknown>),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["admin", "tools"] }),
   });
 }
