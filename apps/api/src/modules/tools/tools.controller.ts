@@ -6,27 +6,33 @@ export async function handleListTools(req: Request, res: Response) {
   try {
     const { category, search } = req.query;
 
-    const where: { category?: string; search?: { mode: "insensitive"; contains: string } } = {};
-    if (category) where.category = category as string;
-    if (search && typeof search === "string") {
-      where.search = { mode: "insensitive", contains: search };
+    // Build the WHERE properly. Previously the function fetched all tools
+    // and post-filtered in JS — fine for 10 rows, broken at 100+, and the
+    // bogus `where.search = {mode, contains}` would have been a Prisma
+    // error if it ever ran (it never did because filtering was JS-side).
+    const where: Record<string, unknown> = {};
+    if (category && typeof category === "string") {
+      where.category = category;
+    }
+    if (search && typeof search === "string" && search.trim()) {
+      where.OR = [
+        { name: { contains: search, mode: "insensitive" } },
+        { description: { contains: search, mode: "insensitive" } },
+      ];
     }
 
     const tools = await prisma.tool.findMany({
+      where,
       orderBy: { usageCount: "desc" },
     });
 
-    const filtered = tools.filter((t) => {
-      if (!where.category && !where.search) return true;
-      if (where.category && t.category !== where.category) return false;
-      if (where.search && !t.name.toLowerCase().includes((where.search as any).contains.toLowerCase()) &&
-          !t.description.toLowerCase().includes((where.search as any).contains.toLowerCase())) return false;
-      return true;
-    });
-
-    return apiSuccess(res, filtered);
+    return apiSuccess(res, tools);
   } catch {
-    return apiError(res, { code: "INTERNAL_ERROR", message: "Failed to fetch tools", status: 500 });
+    return apiError(res, {
+      code: "INTERNAL_ERROR",
+      message: "Failed to fetch tools",
+      status: 500,
+    });
   }
 }
 

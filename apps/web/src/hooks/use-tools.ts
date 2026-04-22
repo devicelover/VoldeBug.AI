@@ -10,8 +10,14 @@ export interface Tool {
   description: string;
   logoUrl: string;
   brandColor: string;
+  websiteUrl: string | null;
   useCases: string[];
   subjects: string[];
+  // Rich content surfaced on the tool detail page. All optional from the
+  // client's POV — pages should handle empty arrays gracefully.
+  howTo: string[];
+  examplePrompts: string[];
+  proTips: string[];
   usageCount: number;
   createdAt: string;
 }

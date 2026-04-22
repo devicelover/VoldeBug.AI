@@ -225,8 +225,16 @@ model Tool {
   description String        @db.Text
   logoUrl     String
   brandColor  String        @default("#ffffff")
+  // Where students go when they click "Open Tool". Without this, the
+  // detail page used to fall back to a Google search — useless.
+  websiteUrl  String?
   useCases    String[]
   subjects    String[]
+  // Rich teaching content surfaced on the detail page. Authored by
+  // Voldebug faculty when seeding; admins can edit via /admin/tools.
+  howTo          String[]
+  examplePrompts String[]
+  proTips        String[]
   usageCount  Int           @default(0)
   assignments Assignment[]
   lessonPlans LessonPlan[]

@@ -318,9 +318,13 @@ export interface AdminTool {
   category: string;
   description: string;
   logoUrl: string;
+  websiteUrl?: string | null;
   brandColor: string;
   useCases: string[];
   subjects: string[];
+  howTo?: string[];
+  examplePrompts?: string[];
+  proTips?: string[];
   usageCount: number;
 }
 

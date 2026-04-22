@@ -441,9 +441,13 @@ const toolSchema = z.object({
   ]),
   description: z.string().min(5).max(2000),
   logoUrl: z.string().url().max(2048),
+  websiteUrl: z.string().url().max(2048).optional(),
   brandColor: z.string().max(20).optional(),
-  useCases: z.array(z.string().min(1).max(120)).max(20).default([]),
+  useCases: z.array(z.string().min(1).max(200)).max(20).default([]),
   subjects: z.array(z.string().min(1).max(40)).max(20).default([]),
+  howTo: z.array(z.string().min(1).max(500)).max(20).default([]),
+  examplePrompts: z.array(z.string().min(1).max(500)).max(20).default([]),
+  proTips: z.array(z.string().min(1).max(500)).max(20).default([]),
 });
 
 export async function handleAdminListTools(req: Request, res: Response) {

@@ -34,8 +34,20 @@ export default function AdminToolsPage() {
   const [category, setCategory] = useState<typeof CATEGORIES[number]>("CHAT_AI");
   const [description, setDescription] = useState("");
   const [logoUrl, setLogoUrl] = useState("");
+  const [websiteUrl, setWebsiteUrl] = useState("");
   const [brandColor, setBrandColor] = useState("#6366f1");
   const [subjects, setSubjects] = useState("");
+  const [useCases, setUseCases] = useState("");
+  const [howTo, setHowTo] = useState("");
+  const [examplePrompts, setExamplePrompts] = useState("");
+  const [proTips, setProTips] = useState("");
+
+  function splitLines(s: string): string[] {
+    return s
+      .split("\n")
+      .map((l) => l.trim())
+      .filter(Boolean);
+  }
 
   async function onCreate() {
     try {
@@ -44,20 +56,32 @@ export default function AdminToolsPage() {
         category,
         description: description.trim(),
         logoUrl: logoUrl.trim(),
+        websiteUrl: websiteUrl.trim() || undefined,
         brandColor: brandColor.trim() || "#6366f1",
         subjects: subjects
           .split(",")
           .map((s) => s.trim())
           .filter(Boolean),
-        useCases: [],
+        useCases: useCases
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean),
+        howTo: splitLines(howTo),
+        examplePrompts: splitLines(examplePrompts),
+        proTips: splitLines(proTips),
       });
       setShowForm(false);
       setName("");
       setDescription("");
       setLogoUrl("");
+      setWebsiteUrl("");
       setSubjects("");
+      setUseCases("");
+      setHowTo("");
+      setExamplePrompts("");
+      setProTips("");
     } catch {
-      /* ignore */
+      /* surfaced via createMut.error */
     }
   }
 
@@ -168,6 +192,21 @@ export default function AdminToolsPage() {
               </label>
             </div>
             <label className="block text-sm">
+              <span className="font-medium">Website URL</span>
+              <input
+                type="url"
+                className="input-base mt-1 w-full"
+                value={websiteUrl}
+                onChange={(e) => setWebsiteUrl(e.target.value)}
+                placeholder="https://chat.openai.com"
+              />
+              <p className="mt-1 text-[11px] text-foreground-subtle">
+                Where the &ldquo;Open Tool&rdquo; button on the detail page sends
+                students. Leave blank if the tool is in-product only.
+              </p>
+            </label>
+
+            <label className="block text-sm">
               <span className="font-medium">Subjects (comma separated)</span>
               <input
                 type="text"
@@ -177,6 +216,55 @@ export default function AdminToolsPage() {
                 placeholder="Science, Mathematics, English"
               />
             </label>
+
+            <label className="block text-sm">
+              <span className="font-medium">Use cases (comma separated)</span>
+              <input
+                type="text"
+                className="input-base mt-1 w-full"
+                value={useCases}
+                onChange={(e) => setUseCases(e.target.value)}
+                placeholder="Essay brainstorming, Q&A, Tutoring"
+              />
+            </label>
+
+            <details className="rounded-lg border border-card-border p-3 text-sm">
+              <summary className="cursor-pointer font-medium text-foreground-muted">
+                Detail-page content (optional but recommended)
+              </summary>
+              <div className="mt-3 space-y-3">
+                <label className="block text-xs">
+                  <span className="font-medium">How to use (one step per line)</span>
+                  <textarea
+                    rows={4}
+                    className="input-base mt-1 w-full font-mono text-[11px]"
+                    value={howTo}
+                    onChange={(e) => setHowTo(e.target.value)}
+                    placeholder={"Open the tool in a new tab\nSign in with your school account\nType your prompt"}
+                  />
+                </label>
+                <label className="block text-xs">
+                  <span className="font-medium">Example prompts (one per line)</span>
+                  <textarea
+                    rows={3}
+                    className="input-base mt-1 w-full font-mono text-[11px]"
+                    value={examplePrompts}
+                    onChange={(e) => setExamplePrompts(e.target.value)}
+                    placeholder={"Explain photosynthesis in simple terms\nReview my paragraph and suggest improvements"}
+                  />
+                </label>
+                <label className="block text-xs">
+                  <span className="font-medium">Pro tips (one per line)</span>
+                  <textarea
+                    rows={3}
+                    className="input-base mt-1 w-full font-mono text-[11px]"
+                    value={proTips}
+                    onChange={(e) => setProTips(e.target.value)}
+                    placeholder={"Be specific in your prompts\nAlways verify factual claims"}
+                  />
+                </label>
+              </div>
+            </details>
             {createMut.isError && (
               <p className="text-sm text-rose-600">
                 {(createMut.error as Error)?.message ?? "Couldn’t create."}
