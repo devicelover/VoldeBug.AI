@@ -14,6 +14,11 @@ import {
   handlePrincipalReports,
   handlePrincipalTeachers,
   handlePrincipalHeatmap,
+  handleUpdateSchool,
+  handleRosterImport,
+  handleAdminListTools,
+  handleCreateTool,
+  handleDeleteTool,
 } from "./admin.controller.js";
 
 const adminRouter = express.Router();
@@ -22,6 +27,15 @@ adminRouter.use(authenticate, requireRole("ADMIN"));
 
 // School
 adminRouter.get("/school", handleGetSchool);
+adminRouter.patch("/school", handleUpdateSchool);
+
+// Roster bulk import
+adminRouter.post("/roster-import", handleRosterImport);
+
+// Tool catalog
+adminRouter.get("/tools", handleAdminListTools);
+adminRouter.post("/tools", handleCreateTool);
+adminRouter.delete("/tools/:id", handleDeleteTool);
 
 // Users
 adminRouter.get("/users", handleListUsers);

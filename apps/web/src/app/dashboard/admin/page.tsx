@@ -17,6 +17,10 @@ import {
   Settings as SettingsIcon,
   ArrowRight,
   BarChart3,
+  Upload,
+  Wrench,
+  Receipt,
+  Activity,
 } from "lucide-react";
 
 // ─── Page ───────────────────────────────────────────────────────────────
@@ -145,6 +149,42 @@ export default function AdminDashboardPage() {
               icon={<BookOpen className="h-4 w-4" />}
               label="Lesson plan library"
               description="Voldebug faculty & teacher plans"
+            />
+            <AdminLink
+              href="/dashboard/admin/roster-import"
+              icon={<Upload className="h-4 w-4" />}
+              label="Bulk roster import"
+              description="Add students/teachers from CSV"
+            />
+            <AdminLink
+              href="/dashboard/admin/tools"
+              icon={<Wrench className="h-4 w-4" />}
+              label="AI tool catalog"
+              description="Curate tools teachers can assign"
+            />
+            <AdminLink
+              href="/dashboard/admin/billing"
+              icon={<Receipt className="h-4 w-4" />}
+              label="Plan & billing"
+              description="Pricing tiers and seat usage"
+            />
+            <AdminLink
+              href="/dashboard/principal/reports"
+              icon={<BarChart3 className="h-4 w-4" />}
+              label="Outcome reports"
+              description="Per-class averages & tool adoption"
+            />
+            <AdminLink
+              href="/dashboard/principal/teachers"
+              icon={<GraduationCap className="h-4 w-4" />}
+              label="Teacher performance"
+              description="Activity and grading patterns"
+            />
+            <AdminLink
+              href="/dashboard/principal/heatmap"
+              icon={<Activity className="h-4 w-4" />}
+              label="AI usage heatmap"
+              description="Last 60 days, school-wide"
             />
           </div>
         </section>

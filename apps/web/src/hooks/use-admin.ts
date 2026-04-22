@@ -260,6 +260,94 @@ export function usePrincipalHeatmap() {
   });
 }
 
+// ─── Admin: school settings ──────────────────────────────────────────────
+
+export interface SchoolDetail {
+  id: string;
+  name: string;
+  _count: { members: number; classes: number };
+}
+
+export function useAdminSchool() {
+  return useQuery({
+    queryKey: ["admin", "school"],
+    queryFn: () => api.get<SchoolDetail>("/v1/admin/school"),
+  });
+}
+
+export function useUpdateSchool() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { name?: string }) =>
+      api.patch<SchoolDetail>("/v1/admin/school", input as Record<string, unknown>),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["admin", "school"] }),
+  });
+}
+
+// ─── Admin: roster bulk import ───────────────────────────────────────────
+
+export interface RosterRow {
+  name: string;
+  email: string;
+  role: "STUDENT" | "TEACHER";
+  gradeLevel?: number;
+  classId?: string;
+}
+
+export interface RosterImportResult {
+  created: number;
+  updated: number;
+  addedToClass: number;
+  errors: { email: string; reason: string }[];
+}
+
+export function useRosterImport() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (rows: RosterRow[]) =>
+      api.post<RosterImportResult>("/v1/admin/roster-import", { rows }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["admin"] }),
+  });
+}
+
+// ─── Admin: tool catalog ─────────────────────────────────────────────────
+
+export interface AdminTool {
+  id: string;
+  name: string;
+  category: string;
+  description: string;
+  logoUrl: string;
+  brandColor: string;
+  useCases: string[];
+  subjects: string[];
+  usageCount: number;
+}
+
+export function useAdminTools() {
+  return useQuery({
+    queryKey: ["admin", "tools"],
+    queryFn: () => api.get<{ tools: AdminTool[] }>("/v1/admin/tools"),
+  });
+}
+
+export function useCreateTool() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: Partial<AdminTool>) =>
+      api.post<AdminTool>("/v1/admin/tools", input as Record<string, unknown>),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["admin", "tools"] }),
+  });
+}
+
+export function useDeleteTool() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.delete(`/v1/admin/tools/${id}`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["admin", "tools"] }),
+  });
+}
+
 // ─── Per-student AI history (admin / principal) ──────────────────────────
 
 export interface StudentIntegrityEntry {

@@ -1,4 +1,5 @@
 import type { Request, Response } from "express";
+import { z } from "zod";
 import { UserRole } from "@prisma/client";
 import { prisma } from "../../utils/prisma.js";
 import { apiSuccess, apiError } from "../../utils/api.js";
@@ -269,6 +270,234 @@ export async function handleGetSchoolOverview(req: Request, res: Response) {
     return apiSuccess(res, overview);
   } catch {
     return apiError(res, { code: "INTERNAL_ERROR", message: "Failed to fetch school overview", status: 500 });
+  }
+}
+
+// ─── Admin: update school settings ───────────────────────────────────────
+
+const updateSchoolSchema = z.object({
+  name: z.string().min(2).max(120).optional(),
+});
+
+export async function handleUpdateSchool(req: Request, res: Response) {
+  const adminId = req.userId!;
+  const parsed = updateSchoolSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return apiError(res, {
+      code: "VALIDATION_ERROR",
+      message: parsed.error.issues[0]?.message ?? "Invalid update payload",
+      status: 422,
+    });
+  }
+  try {
+    const admin = await prisma.user.findUnique({
+      where: { id: adminId },
+      select: { schoolId: true },
+    });
+    if (!admin?.schoolId) {
+      return apiError(res, {
+        code: "FORBIDDEN",
+        message: "Your account is not linked to a school",
+        status: 403,
+      });
+    }
+    const updated = await prisma.school.update({
+      where: { id: admin.schoolId },
+      data: parsed.data,
+      select: {
+        id: true,
+        name: true,
+        _count: { select: { members: true, classes: true } },
+      },
+    });
+    return apiSuccess(res, updated);
+  } catch (err) {
+    return apiError(res, {
+      code: "UPDATE_FAILED",
+      message: (err as Error).message,
+      status: 400,
+    });
+  }
+}
+
+// ─── Admin: bulk roster CSV import ───────────────────────────────────────
+// Accepts an array of {name, email, role, gradeLevel?, classId?}.
+// Creates User rows for new emails (random temp password — admin shares),
+// updates existing users (if same email is in the same school).
+
+const rosterRowSchema = z.object({
+  name: z.string().min(2).max(120),
+  email: z.string().email(),
+  role: z.enum(["STUDENT", "TEACHER"]),
+  gradeLevel: z.number().int().min(1).max(12).optional(),
+  classId: z.string().min(1).optional(),
+});
+const rosterImportSchema = z.object({
+  rows: z.array(rosterRowSchema).min(1).max(500),
+});
+
+export async function handleRosterImport(req: Request, res: Response) {
+  const adminId = req.userId!;
+  const parsed = rosterImportSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return apiError(res, {
+      code: "VALIDATION_ERROR",
+      message: parsed.error.issues[0]?.message ?? "Invalid roster",
+      status: 422,
+    });
+  }
+  try {
+    const admin = await prisma.user.findUnique({
+      where: { id: adminId },
+      select: { schoolId: true },
+    });
+    if (!admin?.schoolId) {
+      return apiError(res, {
+        code: "FORBIDDEN",
+        message: "Your account is not linked to a school",
+        status: 403,
+      });
+    }
+
+    let created = 0;
+    let updated = 0;
+    let addedToClass = 0;
+    const errors: { email: string; reason: string }[] = [];
+
+    for (const row of parsed.data.rows) {
+      try {
+        // Random initial password (admin must reset / share via OOB).
+        // bcryptjs hash performed only if creating.
+        const existing = await prisma.user.findUnique({
+          where: { email: row.email },
+        });
+        if (existing) {
+          await prisma.user.update({
+            where: { id: existing.id },
+            data: {
+              name: row.name,
+              gradeLevel: row.gradeLevel,
+              schoolId: admin.schoolId,
+              role: row.role,
+            },
+          });
+          updated += 1;
+          if (row.classId && row.role === "STUDENT") {
+            await prisma.classMember.upsert({
+              where: {
+                classId_userId: { classId: row.classId, userId: existing.id },
+              },
+              update: {},
+              create: { classId: row.classId, userId: existing.id },
+            });
+            addedToClass += 1;
+          }
+        } else {
+          const { hash } = await import("bcryptjs");
+          const tempPassword = Math.random().toString(36).slice(-12);
+          const newUser = await prisma.user.create({
+            data: {
+              name: row.name,
+              email: row.email,
+              passwordHash: await hash(tempPassword, 12),
+              role: row.role,
+              gradeLevel: row.gradeLevel,
+              schoolId: admin.schoolId,
+            },
+          });
+          created += 1;
+          if (row.classId && row.role === "STUDENT") {
+            await prisma.classMember.create({
+              data: { classId: row.classId, userId: newUser.id },
+            });
+            addedToClass += 1;
+          }
+        }
+      } catch (err) {
+        errors.push({ email: row.email, reason: (err as Error).message });
+      }
+    }
+
+    return apiSuccess(res, { created, updated, addedToClass, errors });
+  } catch (err) {
+    return apiError(res, {
+      code: "IMPORT_FAILED",
+      message: (err as Error).message,
+      status: 400,
+    });
+  }
+}
+
+// ─── Admin: tool catalog CRUD ────────────────────────────────────────────
+
+const toolSchema = z.object({
+  name: z.string().min(2).max(80),
+  category: z.enum([
+    "CHAT_AI",
+    "CODE_AI",
+    "IMAGE_AI",
+    "WRITING_AI",
+    "RESEARCH_AI",
+  ]),
+  description: z.string().min(5).max(2000),
+  logoUrl: z.string().url().max(2048),
+  brandColor: z.string().max(20).optional(),
+  useCases: z.array(z.string().min(1).max(120)).max(20).default([]),
+  subjects: z.array(z.string().min(1).max(40)).max(20).default([]),
+});
+
+export async function handleAdminListTools(req: Request, res: Response) {
+  try {
+    const tools = await prisma.tool.findMany({
+      orderBy: [{ category: "asc" }, { name: "asc" }],
+    });
+    return apiSuccess(res, { tools });
+  } catch {
+    return apiError(res, {
+      code: "INTERNAL_ERROR",
+      message: "Failed to list tools",
+      status: 500,
+    });
+  }
+}
+
+export async function handleCreateTool(req: Request, res: Response) {
+  const parsed = toolSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return apiError(res, {
+      code: "VALIDATION_ERROR",
+      message: parsed.error.issues[0]?.message ?? "Invalid tool",
+      status: 422,
+    });
+  }
+  try {
+    const tool = await prisma.tool.create({
+      data: {
+        ...parsed.data,
+        brandColor: parsed.data.brandColor ?? "#6366f1",
+      },
+    });
+    return apiSuccess(res, tool, 201);
+  } catch (err) {
+    return apiError(res, {
+      code: "CREATE_FAILED",
+      message: (err as Error).message,
+      status: 400,
+    });
+  }
+}
+
+export async function handleDeleteTool(req: Request, res: Response) {
+  const { id } = req.params;
+  try {
+    await prisma.tool.delete({ where: { id } });
+    return apiSuccess(res, { id });
+  } catch (err) {
+    return apiError(res, {
+      code: "DELETE_FAILED",
+      message: (err as Error).message,
+      status: 400,
+    });
   }
 }
 
