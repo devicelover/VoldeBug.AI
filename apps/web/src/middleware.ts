@@ -3,7 +3,14 @@ import { NextResponse } from "next/server";
 
 // Public paths that don't require authentication
 const PUBLIC_PATHS = ["/", "/login", "/register", "/role-select"];
-const PUBLIC_PREFIXES = ["/onboarding", "/api", "/_next", "/favicon"];
+const PUBLIC_PREFIXES = [
+  "/onboarding",
+  "/api",
+  "/_next",
+  "/favicon",
+  // Parent consent flow is reached via an unauthenticated email link.
+  "/consent",
+];
 
 export default auth((req) => {
   const { pathname } = req.nextUrl;
@@ -22,17 +29,35 @@ export default auth((req) => {
     return NextResponse.redirect(loginUrl);
   }
 
-  // Ensure role-based routing
+  // ── Role-based gating ─────────────────────────────────────────────────
+  // Each role has their "home" dashboard:
+  //   STUDENT  → /dashboard/student
+  //   TEACHER  → /dashboard/teacher
+  //   ADMIN    → /dashboard/admin (also reaches /dashboard/principal/*)
+  //
+  // Cross-role pages (lesson-plans, ai-chat, ai-log, settings, etc.)
+  // are accessible to all logged-in users.
   const role = req.auth.user?.role;
+  const isStudentRoute =
+    pathname.startsWith("/dashboard/student") ||
+    pathname.startsWith("/dashboard/classroom") ||
+    pathname.startsWith("/dashboard/scoreboard");
   const isTeacherRoute = pathname.startsWith("/dashboard/teacher");
-  const isStudentRoute = pathname.startsWith("/dashboard/student") || pathname.startsWith("/dashboard/classroom");
+  const isAdminRoute =
+    pathname.startsWith("/dashboard/admin") ||
+    pathname.startsWith("/dashboard/principal");
 
-  if (role === "STUDENT" && isTeacherRoute) {
+  // Bounce wrong-role users to their home.
+  if (role === "STUDENT" && (isTeacherRoute || isAdminRoute)) {
     return NextResponse.redirect(new URL("/dashboard/student", req.nextUrl));
   }
-
-  if (role === "TEACHER" && isStudentRoute) {
+  if (role === "TEACHER" && (isStudentRoute || isAdminRoute)) {
     return NextResponse.redirect(new URL("/dashboard/teacher", req.nextUrl));
+  }
+  if (role === "ADMIN" && isStudentRoute) {
+    // Admins land on their own dashboard, not the student one. Teachers
+    // can still see their teacher area; admin pages are explicit.
+    return NextResponse.redirect(new URL("/dashboard/admin", req.nextUrl));
   }
 
   return NextResponse.next();

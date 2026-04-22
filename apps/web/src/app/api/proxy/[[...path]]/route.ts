@@ -66,7 +66,11 @@ async function handleRequest(request: NextRequest, method: string) {
   }
 
   const url = new URL(request.url);
-  const proxyPath = url.pathname.replace(/^\/api\/proxy/, "/v1");
+  // Callers in api-client.ts already prefix paths with /v1 — see all
+  // hooks/*. The proxy just strips the /api/proxy prefix; never re-add
+  // /v1 here or you get /v1/v1/... and the backend 404s. (Real bug
+  // reported by the school admin trying to save settings.)
+  const proxyPath = url.pathname.replace(/^\/api\/proxy/, "");
   const backendUrl = `${env.NEXT_PUBLIC_API_URL}${proxyPath}${url.search}`;
   const body = method !== "GET" ? await request.text() : undefined;
 
