@@ -211,6 +211,27 @@ export default function PrincipalDashboardPage() {
               <GraduationCap className="w-3.5 h-3.5" />
               Manage Classes
             </a>
+            <a
+              href="/dashboard/principal/reports"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.02] px-3 py-1.5 text-xs font-medium text-foreground-subtle hover:bg-white/[0.05]"
+            >
+              <BookOpen className="w-3.5 h-3.5" />
+              Outcome Reports
+            </a>
+            <a
+              href="/dashboard/principal/teachers"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.02] px-3 py-1.5 text-xs font-medium text-foreground-subtle hover:bg-white/[0.05]"
+            >
+              <GraduationCap className="w-3.5 h-3.5" />
+              Teacher Performance
+            </a>
+            <a
+              href="/dashboard/principal/heatmap"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.02] px-3 py-1.5 text-xs font-medium text-foreground-subtle hover:bg-white/[0.05]"
+            >
+              <Activity className="w-3.5 h-3.5" />
+              AI Heatmap
+            </a>
           </div>
         </motion.div>
 

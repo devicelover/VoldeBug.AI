@@ -272,6 +272,279 @@ export async function handleGetSchoolOverview(req: Request, res: Response) {
   }
 }
 
+// ─── Principal: outcome reports ──────────────────────────────────────────
+// Aggregations every principal asks at PTA: average score by class,
+// completion rate, most-used AI tool, integrity health. Designed to be
+// printable / parent-shareable later (no PDF gen yet — just data).
+
+export async function handlePrincipalReports(req: Request, res: Response) {
+  const adminId = req.userId!;
+  try {
+    const admin = await prisma.user.findUnique({
+      where: { id: adminId },
+      select: { schoolId: true },
+    });
+    if (!admin?.schoolId) {
+      return apiError(res, {
+        code: "FORBIDDEN",
+        message: "Your account is not linked to a school",
+        status: 403,
+      });
+    }
+
+    const classes = await prisma.class.findMany({
+      where: { schoolId: admin.schoolId },
+      select: {
+        id: true,
+        name: true,
+        teacher: { select: { id: true, name: true } },
+        _count: { select: { members: true, assignments: true } },
+      },
+    });
+    const classIds = classes.map((c) => c.id);
+
+    // Per-class average score + completion rate
+    const submissions = await prisma.submission.findMany({
+      where: {
+        deletedAt: null,
+        assignment: { classId: { in: classIds } },
+      },
+      select: {
+        score: true,
+        status: true,
+        assignment: { select: { classId: true } },
+      },
+    });
+
+    const perClass = classes.map((c) => {
+      const subs = submissions.filter((s) => s.assignment.classId === c.id);
+      const graded = subs.filter((s) => s.status === "GRADED" && s.score != null);
+      const avg =
+        graded.length > 0
+          ? Math.round(
+              graded.reduce((sum, s) => sum + (s.score ?? 0), 0) / graded.length,
+            )
+          : null;
+      const completionRate =
+        c._count.assignments * c._count.members > 0
+          ? Math.round(
+              (subs.length / (c._count.assignments * c._count.members)) * 100,
+            )
+          : null;
+      return {
+        classId: c.id,
+        className: c.name,
+        teacherName: c.teacher?.name ?? "—",
+        members: c._count.members,
+        assignments: c._count.assignments,
+        submissions: subs.length,
+        averageScore: avg,
+        completionRate,
+      };
+    });
+
+    // Tool usage across the school (audit_logs.toolUsed counts)
+    const studentIds = (
+      await prisma.user.findMany({
+        where: { schoolId: admin.schoolId, role: "STUDENT" },
+        select: { id: true },
+      })
+    ).map((s) => s.id);
+
+    const toolUsage = await prisma.auditLog.groupBy({
+      by: ["toolUsed"],
+      where: { studentId: { in: studentIds } },
+      _count: { _all: true },
+      orderBy: { _count: { toolUsed: "desc" } },
+      take: 10,
+    });
+
+    const integrityHealth = await prisma.auditLog.aggregate({
+      where: { studentId: { in: studentIds } },
+      _count: { _all: true },
+    });
+    const flaggedCount = await prisma.auditLog.count({
+      where: { studentId: { in: studentIds }, isFlagged: true },
+    });
+
+    return apiSuccess(res, {
+      perClass,
+      toolUsage: toolUsage.map((t) => ({
+        tool: t.toolUsed,
+        count: t._count._all,
+      })),
+      integrity: {
+        total: integrityHealth._count._all,
+        flagged: flaggedCount,
+        flaggedRatio:
+          integrityHealth._count._all > 0
+            ? Math.round((flaggedCount / integrityHealth._count._all) * 100)
+            : 0,
+      },
+    });
+  } catch {
+    return apiError(res, {
+      code: "INTERNAL_ERROR",
+      message: "Failed to build report",
+      status: 500,
+    });
+  }
+}
+
+// ─── Principal: teacher performance ──────────────────────────────────────
+
+export async function handlePrincipalTeachers(req: Request, res: Response) {
+  const adminId = req.userId!;
+  try {
+    const admin = await prisma.user.findUnique({
+      where: { id: adminId },
+      select: { schoolId: true },
+    });
+    if (!admin?.schoolId) {
+      return apiError(res, {
+        code: "FORBIDDEN",
+        message: "Your account is not linked to a school",
+        status: 403,
+      });
+    }
+
+    const teachers = await prisma.user.findMany({
+      where: { schoolId: admin.schoolId, role: "TEACHER" },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        image: true,
+        lastActiveAt: true,
+        createdAt: true,
+        _count: { select: { taughtClasses: true, assignments: true } },
+      },
+      orderBy: { name: "asc" },
+    });
+
+    // Average score given by each teacher across their assignments.
+    const teacherIds = teachers.map((t) => t.id);
+    const grades = await prisma.submission.groupBy({
+      by: ["assignmentId"],
+      where: {
+        status: "GRADED",
+        assignment: { creatorId: { in: teacherIds } },
+      },
+      _avg: { score: true },
+      _count: { _all: true },
+    });
+    const assignmentToCreator = new Map<string, string>();
+    const assignments = await prisma.assignment.findMany({
+      where: { creatorId: { in: teacherIds } },
+      select: { id: true, creatorId: true },
+    });
+    assignments.forEach((a) => assignmentToCreator.set(a.id, a.creatorId));
+
+    const perTeacher = new Map<
+      string,
+      { totalGraded: number; sumScore: number }
+    >();
+    for (const g of grades) {
+      const creator = assignmentToCreator.get(g.assignmentId);
+      if (!creator) continue;
+      const acc = perTeacher.get(creator) ?? { totalGraded: 0, sumScore: 0 };
+      acc.totalGraded += g._count._all;
+      acc.sumScore += (g._avg.score ?? 0) * g._count._all;
+      perTeacher.set(creator, acc);
+    }
+
+    const enriched = teachers.map((t) => {
+      const stats = perTeacher.get(t.id);
+      return {
+        ...t,
+        classesCount: t._count.taughtClasses,
+        assignmentsCount: t._count.assignments,
+        gradedCount: stats?.totalGraded ?? 0,
+        averageScoreGiven:
+          stats && stats.totalGraded > 0
+            ? Math.round(stats.sumScore / stats.totalGraded)
+            : null,
+      };
+    });
+
+    return apiSuccess(res, { teachers: enriched });
+  } catch {
+    return apiError(res, {
+      code: "INTERNAL_ERROR",
+      message: "Failed to load teachers",
+      status: 500,
+    });
+  }
+}
+
+// ─── Principal: school-wide AI usage heatmap (last 60 days) ──────────────
+
+export async function handlePrincipalHeatmap(req: Request, res: Response) {
+  const adminId = req.userId!;
+  try {
+    const admin = await prisma.user.findUnique({
+      where: { id: adminId },
+      select: { schoolId: true },
+    });
+    if (!admin?.schoolId) {
+      return apiError(res, {
+        code: "FORBIDDEN",
+        message: "Your account is not linked to a school",
+        status: 403,
+      });
+    }
+
+    const studentIds = (
+      await prisma.user.findMany({
+        where: { schoolId: admin.schoolId, role: "STUDENT" },
+        select: { id: true },
+      })
+    ).map((s) => s.id);
+
+    const since = new Date();
+    since.setDate(since.getDate() - 60);
+    since.setHours(0, 0, 0, 0);
+
+    const logs = await prisma.auditLog.findMany({
+      where: {
+        studentId: { in: studentIds },
+        timestamp: { gte: since },
+      },
+      select: { timestamp: true, isFlagged: true },
+    });
+
+    // Bucket per day. Map: yyyy-mm-dd → {total, flagged}
+    const buckets: Record<string, { total: number; flagged: number }> = {};
+    for (const log of logs) {
+      const d = log.timestamp.toISOString().slice(0, 10);
+      const b = buckets[d] ?? { total: 0, flagged: 0 };
+      b.total += 1;
+      if (log.isFlagged) b.flagged += 1;
+      buckets[d] = b;
+    }
+
+    // Densify: emit every day in the window even if 0, for clean UI rendering.
+    const days: { date: string; total: number; flagged: number }[] = [];
+    for (
+      let d = new Date(since);
+      d <= new Date();
+      d.setDate(d.getDate() + 1)
+    ) {
+      const key = d.toISOString().slice(0, 10);
+      const b = buckets[key] ?? { total: 0, flagged: 0 };
+      days.push({ date: key, total: b.total, flagged: b.flagged });
+    }
+
+    return apiSuccess(res, { days });
+  } catch {
+    return apiError(res, {
+      code: "INTERNAL_ERROR",
+      message: "Failed to build heatmap",
+      status: 500,
+    });
+  }
+}
+
 // ─── Principal Dashboard: Audit Logs ──────────────────────────────────────
 
 export async function handleGetAuditLogs(req: Request, res: Response) {

@@ -11,6 +11,9 @@ import {
   handleGetSchoolOverview,
   handleGetAuditLogs,
   handleListSecurityAuditLogs,
+  handlePrincipalReports,
+  handlePrincipalTeachers,
+  handlePrincipalHeatmap,
 } from "./admin.controller.js";
 
 const adminRouter = express.Router();
@@ -36,5 +39,10 @@ adminRouter.get("/audit-logs", handleGetAuditLogs); // AI prompt logs (academic 
 
 // Security audit log: who-did-what to whom — for DPDP/FERPA queries.
 adminRouter.get("/security-audit-logs", handleListSecurityAuditLogs);
+
+// Principal-flavoured aggregations
+adminRouter.get("/reports", handlePrincipalReports);
+adminRouter.get("/teachers", handlePrincipalTeachers);
+adminRouter.get("/heatmap", handlePrincipalHeatmap);
 
 export { adminRouter };

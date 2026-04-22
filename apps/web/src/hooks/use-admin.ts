@@ -195,6 +195,71 @@ export function useSchoolIntegrityFeed(
   });
 }
 
+// ─── Principal: outcome reports ──────────────────────────────────────────
+
+export interface PrincipalReports {
+  perClass: Array<{
+    classId: string;
+    className: string;
+    teacherName: string;
+    members: number;
+    assignments: number;
+    submissions: number;
+    averageScore: number | null;
+    completionRate: number | null;
+  }>;
+  toolUsage: Array<{ tool: string; count: number }>;
+  integrity: { total: number; flagged: number; flaggedRatio: number };
+}
+
+export function usePrincipalReports() {
+  return useQuery({
+    queryKey: ["principal", "reports"],
+    queryFn: () => api.get<PrincipalReports>("/v1/admin/reports"),
+    staleTime: 60_000,
+  });
+}
+
+// ─── Principal: teacher performance ──────────────────────────────────────
+
+export interface PrincipalTeacher {
+  id: string;
+  name: string | null;
+  email: string | null;
+  image: string | null;
+  lastActiveAt: string;
+  createdAt: string;
+  classesCount: number;
+  assignmentsCount: number;
+  gradedCount: number;
+  averageScoreGiven: number | null;
+}
+
+export function usePrincipalTeachers() {
+  return useQuery({
+    queryKey: ["principal", "teachers"],
+    queryFn: () =>
+      api.get<{ teachers: PrincipalTeacher[] }>("/v1/admin/teachers"),
+    staleTime: 60_000,
+  });
+}
+
+// ─── Principal: school heatmap ───────────────────────────────────────────
+
+export interface HeatmapDay {
+  date: string;
+  total: number;
+  flagged: number;
+}
+
+export function usePrincipalHeatmap() {
+  return useQuery({
+    queryKey: ["principal", "heatmap"],
+    queryFn: () => api.get<{ days: HeatmapDay[] }>("/v1/admin/heatmap"),
+    staleTime: 5 * 60_000,
+  });
+}
+
 // ─── Per-student AI history (admin / principal) ──────────────────────────
 
 export interface StudentIntegrityEntry {
