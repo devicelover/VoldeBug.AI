@@ -222,6 +222,72 @@ export function useClassIntegrityFeed(
   });
 }
 
+// ─── Teacher: roster across all classes ──────────────────────────────────
+
+export interface TeacherStudent {
+  id: string;
+  name: string | null;
+  email: string | null;
+  image: string | null;
+  gradeLevel: number | null;
+  classes: string[];
+  submissions: number;
+  flagged: number;
+}
+
+export function useTeacherStudents() {
+  return useQuery({
+    queryKey: ["teacher", "students"],
+    queryFn: () => api.get<{ students: TeacherStudent[] }>("/v1/teacher/students"),
+    staleTime: 30_000,
+  });
+}
+
+// ─── Teacher: per-student profile ────────────────────────────────────────
+
+export interface TeacherStudentDetail {
+  student: {
+    id: string;
+    name: string | null;
+    email: string | null;
+    image: string | null;
+    gradeLevel: number | null;
+    studentId: string | null;
+    createdAt: string;
+  };
+  submissions: Array<{
+    id: string;
+    status: string;
+    score: number | null;
+    grade: string | null;
+    submittedAt: string;
+    assignment: { id: string; title: string; dueDate: string };
+  }>;
+  flagged: Array<{
+    id: string;
+    toolUsed: string;
+    promptText: string;
+    flagReasons: string[];
+    timestamp: string;
+    assignment: { id: string; title: string } | null;
+  }>;
+  stats: {
+    submissions: number;
+    flaggedAi: number;
+    totalAiInteractions: number;
+  };
+}
+
+export function useTeacherStudent(studentId: string | undefined) {
+  return useQuery({
+    queryKey: ["teacher", "student", studentId],
+    queryFn: () =>
+      api.get<TeacherStudentDetail>(`/v1/teacher/student/${studentId}`),
+    enabled: !!studentId,
+    staleTime: 30_000,
+  });
+}
+
 export function useGradeSubmission() {
   const qc = useQueryClient();
   return useMutation({

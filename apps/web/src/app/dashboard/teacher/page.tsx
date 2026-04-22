@@ -188,6 +188,11 @@ export default function TeacherDashboardPage() {
                   label="AI Integrity"
                   href="/dashboard/teacher/integrity"
                 />
+                <QuickAction
+                  icon={<Users className="w-5 h-5" />}
+                  label="My Students"
+                  href="/dashboard/teacher/students"
+                />
               </div>
             </GlassCard>
           </motion.div>

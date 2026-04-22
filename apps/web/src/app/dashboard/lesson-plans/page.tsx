@@ -122,11 +122,17 @@ export default function LessonPlansPage() {
     <div className="mx-auto max-w-6xl space-y-6 p-6 md:p-10">
       {/* Header */}
       <header className="space-y-2">
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <div className="rounded-xl bg-accent/10 p-2 text-accent-light">
             <BookOpen className="h-6 w-6" />
           </div>
           <h1 className="font-display text-3xl font-bold">Lesson Plan Library</h1>
+          <Link
+            href="/dashboard/teacher/lesson-plans/new"
+            className="ml-auto inline-flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-white shadow hover:bg-accent-light"
+          >
+            + Author a plan
+          </Link>
         </div>
         <p className="text-sm text-foreground-muted">
           NCERT-aligned lesson plans with AI integration baked in. Click any

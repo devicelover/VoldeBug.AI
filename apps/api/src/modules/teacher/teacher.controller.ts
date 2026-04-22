@@ -112,6 +112,184 @@ export async function handleTeacherClasses(req: Request, res: Response) {
   }
 }
 
+// ─── Roster across all of the teacher's classes ──────────────────────────
+// Returns every student the teacher is responsible for, deduplicated, with
+// per-student submission + flag counts. Used by /dashboard/teacher/students.
+
+export async function handleTeacherAllStudents(req: Request, res: Response) {
+  const teacherId = req.userId!;
+  try {
+    const classes = await prisma.class.findMany({
+      where: { teacherId },
+      select: { id: true, name: true },
+    });
+    const classIds = classes.map((c) => c.id);
+    if (classIds.length === 0) {
+      return apiSuccess(res, { students: [] });
+    }
+
+    const memberships = await prisma.classMember.findMany({
+      where: { classId: { in: classIds } },
+      include: {
+        user: {
+          select: { id: true, name: true, email: true, image: true, gradeLevel: true },
+        },
+      },
+    });
+
+    type Acc = Record<string, {
+      id: string;
+      name: string | null;
+      email: string | null;
+      image: string | null;
+      gradeLevel: number | null;
+      classes: string[];
+    }>;
+    const byStudent: Acc = {};
+    for (const m of memberships) {
+      const u = m.user;
+      const cls = classes.find((c) => c.id === m.classId)?.name;
+      if (!byStudent[u.id]) {
+        byStudent[u.id] = {
+          id: u.id,
+          name: u.name,
+          email: u.email,
+          image: u.image,
+          gradeLevel: u.gradeLevel,
+          classes: [],
+        };
+      }
+      if (cls && !byStudent[u.id].classes.includes(cls)) {
+        byStudent[u.id].classes.push(cls);
+      }
+    }
+    const studentIds = Object.keys(byStudent);
+
+    const [submissionCounts, flaggedCounts] = await Promise.all([
+      prisma.submission.groupBy({
+        by: ["studentId"],
+        where: { studentId: { in: studentIds }, deletedAt: null },
+        _count: { _all: true },
+      }),
+      prisma.auditLog.groupBy({
+        by: ["studentId"],
+        where: { studentId: { in: studentIds }, isFlagged: true },
+        _count: { _all: true },
+      }),
+    ]);
+    const subMap = new Map(submissionCounts.map((s) => [s.studentId, s._count._all]));
+    const flagMap = new Map(flaggedCounts.map((f) => [f.studentId, f._count._all]));
+
+    const students = Object.values(byStudent)
+      .map((s) => ({
+        ...s,
+        submissions: subMap.get(s.id) ?? 0,
+        flagged: flagMap.get(s.id) ?? 0,
+      }))
+      .sort((a, b) => (a.name ?? "").localeCompare(b.name ?? ""));
+
+    return apiSuccess(res, { students });
+  } catch {
+    return apiError(res, {
+      code: "INTERNAL_ERROR",
+      message: "Failed to load students",
+      status: 500,
+    });
+  }
+}
+
+// ─── Per-student profile (teacher-scoped) ────────────────────────────────
+
+export async function handleTeacherStudent(req: Request, res: Response) {
+  const teacherId = req.userId!;
+  const { studentId } = req.params;
+  try {
+    const teacherClasses = await prisma.class.findMany({
+      where: { teacherId },
+      select: { id: true },
+    });
+    const classIds = teacherClasses.map((c) => c.id);
+
+    // Authz: student must be in one of those classes.
+    const membership = await prisma.classMember.findFirst({
+      where: { userId: studentId, classId: { in: classIds } },
+    });
+    if (!membership) {
+      return apiError(res, {
+        code: "FORBIDDEN",
+        message: "Student is not in any of your classes",
+        status: 403,
+      });
+    }
+
+    const [student, submissions, flagged, totalLogs] = await Promise.all([
+      prisma.user.findUnique({
+        where: { id: studentId },
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          image: true,
+          gradeLevel: true,
+          studentId: true,
+          createdAt: true,
+        },
+      }),
+      prisma.submission.findMany({
+        where: {
+          studentId,
+          deletedAt: null,
+          assignment: { classId: { in: classIds } },
+        },
+        include: {
+          assignment: { select: { id: true, title: true, dueDate: true } },
+        },
+        orderBy: { submittedAt: "desc" },
+        take: 30,
+      }),
+      prisma.auditLog.findMany({
+        where: { studentId, isFlagged: true },
+        orderBy: { timestamp: "desc" },
+        take: 20,
+        select: {
+          id: true,
+          toolUsed: true,
+          promptText: true,
+          flagReasons: true,
+          timestamp: true,
+          assignment: { select: { id: true, title: true } },
+        },
+      }),
+      prisma.auditLog.count({ where: { studentId } }),
+    ]);
+
+    if (!student) {
+      return apiError(res, {
+        code: "NOT_FOUND",
+        message: "Student not found",
+        status: 404,
+      });
+    }
+
+    return apiSuccess(res, {
+      student,
+      submissions,
+      flagged,
+      stats: {
+        submissions: submissions.length,
+        flaggedAi: flagged.length,
+        totalAiInteractions: totalLogs,
+      },
+    });
+  } catch {
+    return apiError(res, {
+      code: "INTERNAL_ERROR",
+      message: "Failed to load student profile",
+      status: 500,
+    });
+  }
+}
+
 export async function handleTeacherClassDetail(req: Request, res: Response) {
   const userId = req.userId!;
   const { classId } = req.params;
