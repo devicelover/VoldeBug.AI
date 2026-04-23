@@ -129,6 +129,41 @@ export default function StudentDashboardPage() {
           </div>
         </motion.div>
 
+        {/* Quick-access learning surfaces */}
+        <motion.div
+          initial={{ opacity: 0, y: 6 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.1 }}
+          className="flex flex-wrap gap-2"
+        >
+          <a
+            href="/dashboard/ai-chat"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-accent/20 bg-accent/5 px-3 py-1.5 text-xs font-medium text-accent-light hover:bg-accent/10"
+          >
+            <Sparkles className="h-3.5 w-3.5" />
+            Voldebug Chat
+          </a>
+          <a
+            href="/dashboard/prompts"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-fuchsia-500/20 bg-fuchsia-500/5 px-3 py-1.5 text-xs font-medium text-fuchsia-300 hover:bg-fuchsia-500/10"
+          >
+            <Sparkles className="h-3.5 w-3.5" />
+            AI Prompt Library
+          </a>
+          <a
+            href="/dashboard/lesson-plans"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.02] px-3 py-1.5 text-xs font-medium text-foreground-subtle hover:bg-white/[0.05]"
+          >
+            Lesson Plans
+          </a>
+          <a
+            href="/dashboard/ai-log"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.02] px-3 py-1.5 text-xs font-medium text-foreground-subtle hover:bg-white/[0.05]"
+          >
+            AI Activity Log
+          </a>
+        </motion.div>
+
         {/* Bento Grid Layout */}
         <motion.div
           variants={containerVariants}

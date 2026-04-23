@@ -238,11 +238,75 @@ model Tool {
   usageCount  Int           @default(0)
   assignments Assignment[]
   lessonPlans LessonPlan[]
+  promptRecipes PromptRecipe[]
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
 
   @@index([category])
   @@map("tools")
+}
+
+enum PromptKind {
+  EXPLORE   // open-ended exploration prompts
+  VERIFY    // "check my work / answer" prompts
+  FEEDBACK  // ask AI to critique your draft
+  REFLECT   // metacognitive / "ask me questions" prompts
+  PRACTICE  // generate practice problems
+  SUMMARIZE // condense long material
+}
+
+// CBSE-aligned AI prompt library.
+//
+// One row = one carefully-written prompt that students/teachers can
+// copy into a specific AI tool. Browseable by subject/class/board/
+// chapter and by the recommended tool. Pairs with the long-form
+// LessonPlan (multi-step teaching unit) and Tool (the AI itself);
+// PromptRecipe is the bite-sized "show me a good prompt for this
+// chapter" answer.
+model PromptRecipe {
+  id            String     @id @default(cuid())
+  slug          String     @unique
+  title         String     // short label, e.g. "Compare two perspectives on the Salt March"
+  prompt        String     @db.Text  // the actual prompt text; may contain [placeholder] slots
+  description   String     @db.Text  // 1-2 sentences about when to use this
+
+  // Curriculum metadata — same shape as LessonPlan so filters compose.
+  subject       String
+  gradeLevel    Int
+  board         String     // "CBSE" | "ICSE" | "All"
+  chapter       String?
+  chapterNumber Int?
+  topic         String?    // optional finer-grained topic within the chapter
+
+  kind          PromptKind @default(EXPLORE)
+
+  // Recommended tool. Optional because some prompts work in any chat AI.
+  recommendedToolId String?
+  recommendedTool   Tool?  @relation(fields: [recommendedToolId], references: [id])
+
+  tags          String[]
+
+  // Authorship / access
+  authorId      String?
+  isPublic      Boolean    @default(true)
+  isOfficial    Boolean    @default(false)
+
+  // Engagement
+  usageCount    Int        @default(0)
+  copyCount     Int        @default(0)
+
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+  deletedAt     DateTime?
+
+  @@index([subject])
+  @@index([gradeLevel])
+  @@index([board])
+  @@index([chapter])
+  @@index([recommendedToolId])
+  @@index([isPublic, deletedAt])
+  @@index([subject, gradeLevel, board])
+  @@map("prompt_recipes")
 }
 
 // Voldebug Faculty-authored (or teacher-contributed) lesson plans.

@@ -160,7 +160,7 @@ export default function TeacherDashboardPage() {
           <motion.div variants={itemVariants}>
             <GlassCard className="!p-6">
               <h2 className="text-xs font-bold text-foreground-subtle uppercase tracking-widest mb-5 ml-2">Quick Actions</h2>
-              <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+              <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4">
                 <QuickAction
                   icon={<PlusCircle className="w-5 h-5" />}
                   label="Create Assignment"
@@ -192,6 +192,16 @@ export default function TeacherDashboardPage() {
                   icon={<Users className="w-5 h-5" />}
                   label="My Students"
                   href="/dashboard/teacher/students"
+                />
+                <QuickAction
+                  icon={<FileText className="w-5 h-5" />}
+                  label="Lesson Plans"
+                  href="/dashboard/lesson-plans"
+                />
+                <QuickAction
+                  icon={<BarChart3 className="w-5 h-5" />}
+                  label="Prompt Library"
+                  href="/dashboard/prompts"
                 />
               </div>
             </GlassCard>

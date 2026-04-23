@@ -21,6 +21,7 @@ import {
   Wrench,
   Receipt,
   Activity,
+  Sparkles,
 } from "lucide-react";
 
 // ─── Page ───────────────────────────────────────────────────────────────
@@ -149,6 +150,12 @@ export default function AdminDashboardPage() {
               icon={<BookOpen className="h-4 w-4" />}
               label="Lesson plan library"
               description="Voldebug faculty & teacher plans"
+            />
+            <AdminLink
+              href="/dashboard/prompts"
+              icon={<Sparkles className="h-4 w-4" />}
+              label="AI Prompt Library"
+              description="CBSE-aligned prompts by chapter & tool"
             />
             <AdminLink
               href="/dashboard/admin/roster-import"
