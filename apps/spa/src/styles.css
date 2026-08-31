@@ -2434,3 +2434,12 @@ button.chip:active { transform: scale(0.94); }
   .heatgrid { grid-template-columns: 66px repeat(var(--cols), minmax(56px, 1fr)); }
   .heatcell { font-size: 11px; min-height: 38px; }
 }
+
+/* ===========================================================================
+   POLISH PASS (2026-09-01)
+   =========================================================================== */
+
+/* Dark theme: the generic .week__day.hit rule paints hit-day letters in
+   --flame, which washes out on the hero's white glass tiles. Letters go
+   white there; the flame emoji already carries the "hit" signal. */
+[data-theme="dark"] .hero .week__day.hit { color: #fff; }

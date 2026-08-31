@@ -1805,7 +1805,11 @@ function ctx() {
   };
 }
 
-function haptic(ms = 12) { try { navigator.vibrate?.(ms); } catch {} }
+/* Chrome logs a console error (not an exception) for vibrate() before the
+   first user gesture, so the try/catch alone can't keep the console clean. */
+let hadUserGesture = false;
+try { addEventListener('pointerdown', () => { hadUserGesture = true; }, { once: true, passive: true }); } catch {}
+function haptic(ms = 12) { if (!hadUserGesture) return; try { navigator.vibrate?.(ms); } catch {} }
 
 function chime(freqs) {
   if (!S.sound || reduced()) return;
@@ -4290,7 +4294,7 @@ function viewBoard() {
     <div class="card board">
       ${all.map((r, i) => `<div class="row ${r.me ? 'me' : ''}" style="--i:${i}">
         <span class="row__rank">${i + 1}</span>
-        <span class="row__av">${r.a}</span>
+        <span class="row__av">${esc(r.a)}</span>
         <span class="row__name">${esc(r.n)}</span>
         <span class="row__xp">${(weekly ? r.w : r.xp).toLocaleString()} XP</span>
       </div>`).join('')}
