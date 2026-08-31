@@ -21,7 +21,7 @@
    quietly serves a stale build to every returning student.
    =========================================================================== */
 
-const CACHE_VERSION = 'voldebug-v5';
+const CACHE_VERSION = 'voldebug-v6';
 const SHELL_URL = '/app/';
 
 const PRECACHE = [

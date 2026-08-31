@@ -42,8 +42,8 @@ export async function handleOnboard(req: Request, res: Response, next: NextFunct
   const parsed = onboardSchema.safeParse(req.body);
   if (!parsed.success) return validationError(res, parsed.error);
   try {
-    const profile = await onboardProfile(req.userId!, parsed.data);
-    return apiSuccess(res, { profile });
+    const { profile, classCodeRejected } = await onboardProfile(req.userId!, parsed.data);
+    return apiSuccess(res, { profile, classCodeRejected });
   } catch (err) {
     return next(err);
   }

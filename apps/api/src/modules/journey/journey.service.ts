@@ -364,14 +364,20 @@ export async function onboardProfile(
   await ensureProfile(userId);
 
   // classCode goes through the same existence check as class_join events —
-  // onboard must not be a side door for planting arbitrary codes.
+  // onboard must not be a side door for planting arbitrary codes. Dropping it
+  // is reported back rather than done silently: the client is still showing
+  // the code the student typed, and only it can correct that.
   let classCode = input.classCode?.toLowerCase();
+  let classCodeRejected = false;
   if (classCode) {
     const cls = await prisma.journeyClass.findFirst({
       where: { code: classCode, deletedAt: null },
       select: { id: true },
     });
-    if (!cls) classCode = undefined;
+    if (!cls) {
+      classCode = undefined;
+      classCodeRejected = true;
+    }
   }
 
   return prisma.$transaction(async (tx) => {
@@ -401,7 +407,7 @@ export async function onboardProfile(
         lastActiveDate: now,
       },
     });
-    return serializeProfile(updated);
+    return { profile: serializeProfile(updated), classCodeRejected };
   });
 }
 
@@ -585,8 +591,13 @@ export async function listJourneyClasses(userId: string) {
     orderBy: { createdAt: "desc" },
     take: 50,
   });
+  // The owner is excluded, exactly as the roster excludes them: counting a
+  // teacher as one of their own students made the headline number disagree
+  // with the table it sits above.
   const counts = await Promise.all(
-    classes.map((c) => prisma.journeyProfile.count({ where: { classCode: c.code } })),
+    classes.map((c) =>
+      prisma.journeyProfile.count({ where: { classCode: c.code, userId: { not: userId } } }),
+    ),
   );
   return classes.map((c, i) => ({
     id: c.id,
@@ -641,8 +652,15 @@ export async function getSchoolStats(userId: string) {
   const [students, teachers, activeToday, activeWeek, classes, xpAgg] = await Promise.all([
     prisma.journeyProfile.count({ where: { journeyRole: "student" } }),
     prisma.journeyProfile.count({ where: { journeyRole: "teacher" } }),
-    prisma.journeyProfile.count({ where: { lastActiveDate: { gte: dayStart } } }),
-    prisma.journeyProfile.count({ where: { lastActiveDate: { gte: weekStart } } }),
+    // Students only: this number sits beside the student head count, and
+    // counting teachers and principals in it made "active today" able to
+    // exceed the student body it appeared to describe.
+    prisma.journeyProfile.count({
+      where: { journeyRole: "student", lastActiveDate: { gte: dayStart } },
+    }),
+    prisma.journeyProfile.count({
+      where: { journeyRole: "student", lastActiveDate: { gte: weekStart } },
+    }),
     prisma.journeyClass.findMany({ where: { deletedAt: null }, take: 50 }),
     prisma.journeyProfile.aggregate({ _sum: { xp: true }, _avg: { xp: true } }),
   ]);

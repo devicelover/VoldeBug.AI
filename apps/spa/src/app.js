@@ -1737,7 +1737,16 @@ async function syncOnboard(opts) {
     if (S.classCode && !(opts && opts.skipClassCode)) body.classCode = S.classCode;
     if (S.name) body.name = S.name;
     const out = await api('/journey/onboard', { method: 'POST', body });
-    adoptProfile(out && out.data && out.data.profile);
+    const d = (out && out.data) || {};
+    adoptProfile(d.profile);
+    // The server drops a classCode it cannot find rather than storing a code
+    // that points nowhere. It used to do so silently, leaving the student
+    // holding a class chip the server had already thrown away.
+    if (d.classCodeRejected) {
+      S.classCode = '';
+      save();
+      toast('🏫 ' + t('classCodeNotFound'));
+    }
   } catch {}
 }
 
@@ -1751,49 +1760,71 @@ async function syncOnboard(opts) {
    has nothing to change), which is why the returned profile is checked too —
    re-entering your own code is a no-op, not a failure.
 
-   Returns true only when the student is genuinely in the class afterwards. */
+   Three outcomes, never two: 'ok' (in the class), 'rejected' (the server
+   looked and said no) and 'offline' (the server never answered at all).
+   Collapsing the last two into one is how a dropped connection ended up
+   telling a student their teacher's code was fake. */
 async function joinClassCloud(code, quiet) {
+  let out = null;
   try {
-    const out = await api('/journey/events', {
+    out = await api('/journey/events', {
       method: 'POST',
       body: { events: [{ kind: 'class_join', payload: { code } }] }
     });
-    const d = (out && out.data) || {};
-    const p = d.profile;
-    const inClass = !!(p && typeof p.classCode === 'string'
-      && p.classCode.toLowerCase() === String(code).toLowerCase());
-    if (d.accepted === 0 && !inClass) {
-      toast('🏫 ' + t('classCodeNotFound'));
-      haptic(60);
-      return false;
-    }
-    adoptProfile(p);
-    save();
-    if (!quiet) {
-      if (d.awardedXP > 0) { toast(`+${d.awardedXP} XP · ${t('joinClass')}`); chime([659.25]); }
-      else toast('🏫 ' + t('classJoined'));
-      haptic(18);
-    }
-    return true;
   } catch {
+    // A timeout, an abort, a 5xx, a captive portal: no verdict was reached,
+    // so nothing here is allowed to look like "wrong code". Only a real 2xx
+    // answer below is ever permitted to reject one.
     toast('☁️ ' + t('cloudOffline'));
-    return false;
+    return 'offline';
   }
+  const d = (out && out.data) || {};
+  const p = d.profile;
+  const accepted = Number(d && d.accepted) || 0;
+  const inClass = !!(p && typeof p.classCode === 'string'
+    && p.classCode.toLowerCase() === String(code).toLowerCase());
+  if (accepted === 0 && !inClass) {
+    toast('🏫 ' + t('classCodeNotFound'));
+    haptic(60);
+    return 'rejected';
+  }
+  // Captured before the server's profile lands: the join XP arrives inside
+  // adoptProfile, so comparing after the fact is the only way to know a
+  // level was crossed. The guest path gets this free from gain().
+  const lvlBefore = levelForXp(S.xp);
+  adoptProfile(p);
+  save();
+  if (!quiet) {
+    if (d.awardedXP > 0) { toast(`+${d.awardedXP} XP · ${t('joinClass')}`); chime([659.25]); }
+    else toast('🏫 ' + t('classJoined'));
+    haptic(18);
+    const lvlAfter = levelForXp(S.xp);
+    const fresh = (Array.isArray(d.newBadges) ? d.newBadges : [])
+      .map(k => BADGES.find(b => b.k === k))
+      .filter(Boolean);
+    if (lvlAfter > lvlBefore) queueTakeover(lvlAfter, fresh);
+    else if (fresh.length) queueTakeover(null, fresh);
+  }
+  return 'ok';
 }
 
 /* Onboarding variant: the profile sync has to land first (so the server's XP
-   already includes the welcome bonus before class_join adds to it), and a
-   rejected code has to be unwound locally — including the join XP finish()
-   optimistically counted — or the next sync would yank the number down with
-   no explanation. */
+   already includes the welcome bonus before class_join adds to it). A code the
+   server actually rejected is dropped locally; a code that merely could not be
+   checked is kept and queued, because a student on school wifi should not
+   finish onboarding with their class silently deleted. */
 async function verifyOnboardClassCode() {
   const code = S.classCode;
   if (!signedIn() || !code) { syncOnboard(); return; }
   await syncOnboard({ skipClassCode: true });
-  const ok = await joinClassCloud(code, true);
-  if (!ok) {
+  const r = await joinClassCloud(code, true);
+  if (r === 'offline') {
+    // Unverified, not wrong: the queue carries it until the network returns.
+    pushEvent('class_join', { code });
+    return;
+  }
+  if (r === 'rejected') {
     S.classCode = '';
-    S.xp = Math.max(0, S.xp - XP.classJoin);
     save();
     try { render(); } catch {}
   }
@@ -4387,7 +4418,12 @@ function fetchLiveBoard() {
   if (!signedIn() || liveBoardLoading) return;
   if (liveBoard && Date.now() - liveBoard.at < 60e3) return;
   liveBoardLoading = true;
+  // The token this request was made with. Signing out mid-flight must not be
+  // undone by the answer that arrives afterwards — it carries the previous
+  // account's classmates, and forceSignOut has already cleared them once.
+  const tok = authToken();
   api('/journey/leaderboard').then(p => {
+    if (authToken() !== tok) return;
     const d = p && p.data;
     if (d && d.scope === 'class' && Array.isArray(d.entries) && d.entries.length > 1) {
       liveBoard = { entries: d.entries, at: Date.now() };
@@ -4632,9 +4668,17 @@ function afterProfile() {
       jb.disabled = true;
       const before = jb.textContent;
       jb.textContent = t('cloudWorking');
-      const ok = await joinClassCloud(v, false);
+      const r = await joinClassCloud(v, false);
       jb.disabled = false; jb.textContent = before;
-      if (!ok) { $('#joinErr').textContent = t('classCodeNotFound'); return; }
+      if (r === 'offline') {
+        // The code was never judged. Queue it so the flush that follows the
+        // network coming back does the join, and say what actually happened
+        // instead of blaming the code.
+        $('#joinErr').textContent = t('cloudOffline');
+        pushEvent('class_join', { code: v });
+        return;
+      }
+      if (r !== 'ok') { $('#joinErr').textContent = t('classCodeNotFound'); return; }
       render();
       return;
     }
@@ -4735,11 +4779,20 @@ const ROSTER = [
 
    `classRosters` is keyed by code rather than a single slot so that flicking
    between two classes does not re-fetch each time. */
-let teacherClasses = null;          // { list, at }
+let teacherClasses = null;          // { list, at, failed? }
 let teacherClassesLoading = false;
+let teacherClassesReq = 0;          // monotonic: only the newest answer may land
 let classRosters = {};              // code -> { members, at, failed? }
 const classRosterLoading = {};      // code -> true while in flight
 let selectedClassCode = '';
+
+/* A failure is cached too — without a timestamp every repaint would fire the
+   same doomed request again — but for seconds rather than the minute a good
+   answer earns. A minute of "could not load" after the wifi came back is the
+   difference between a cache and a dead end. */
+const LIVE_TTL_MS = 60e3;
+const LIVE_FAIL_TTL_MS = 8e3;
+const liveFresh = hit => !!hit && Date.now() - hit.at < (hit.failed ? LIVE_FAIL_TTL_MS : LIVE_TTL_MS);
 
 /* The one label the honest sections need: a chip that says these numbers are
    illustrative. Matches the marker already used on unofficial GSEB rows. */
@@ -4748,10 +4801,16 @@ function sampleChip() {
 }
 
 function fetchTeacherClasses(force) {
-  if (!signedIn() || teacherClassesLoading) return;
-  if (!force && teacherClasses && Date.now() - teacherClasses.at < 60e3) return;
+  if (!signedIn()) return;
+  // A forced refresh is what runs right after a class is created, so it must
+  // never be swallowed by the poll that happened to still be in flight.
+  if (teacherClassesLoading && !force) return;
+  if (!force && liveFresh(teacherClasses)) return;
+  const tok = authToken();
+  const req = ++teacherClassesReq;
   teacherClassesLoading = true;
   api('/journey/class').then(p => {
+    if (authToken() !== tok || req !== teacherClassesReq) return;
     const d = p && p.data;
     const list = d && Array.isArray(d.classes) ? d.classes : [];
     teacherClasses = { list, at: Date.now() };
@@ -4761,30 +4820,40 @@ function fetchTeacherClasses(force) {
       selectedClassCode = list.length ? list[0].code : '';
     }
     if (currentRoute() === 'teacher') render();
-  }).catch(() => {}).finally(() => { teacherClassesLoading = false; });
+  }).catch(() => {
+    if (authToken() !== tok || req !== teacherClassesReq) return;
+    teacherClasses = { list: [], at: Date.now(), failed: true };
+    if (currentRoute() === 'teacher') render();
+  }).finally(() => {
+    if (req === teacherClassesReq) teacherClassesLoading = false;
+  });
 }
 
 function fetchClassRoster(code) {
   if (!signedIn() || !code || classRosterLoading[code]) return;
-  const hit = classRosters[code];
-  if (hit && Date.now() - hit.at < 60e3) return;
+  if (liveFresh(classRosters[code])) return;
+  const tok = authToken();
   classRosterLoading[code] = true;
   api('/journey/class/' + encodeURIComponent(code) + '/roster').then(p => {
+    // Another teacher's roster must not be written into this account's cache
+    // by a response that outlived the session it belonged to.
+    if (authToken() !== tok) return;
     const d = p && p.data;
     classRosters[code] = Array.isArray(d && d.members)
       ? { members: d.members, at: Date.now() }
       : { members: [], at: Date.now(), failed: true };
     if (currentRoute() === 'teacher') render();
   }).catch(() => {
-    // Cached as a failure on purpose: without a timestamp here every repaint
-    // would fire the same doomed request again.
+    if (authToken() !== tok) return;
     classRosters[code] = { members: [], at: Date.now(), failed: true };
     if (currentRoute() === 'teacher') render();
   }).finally(() => { delete classRosterLoading[code]; });
 }
 
+/* Null for "no live list": not signed in, not arrived yet, or the fetch
+   failed. A failed fetch must not read as "this teacher has no classes". */
 function teacherLiveClasses() {
-  return signedIn() && teacherClasses ? teacherClasses.list : null;
+  return signedIn() && teacherClasses && !teacherClasses.failed ? teacherClasses.list : null;
 }
 
 function teacherSelectedClass() {
@@ -4801,6 +4870,17 @@ function teacherClassesCard() {
       <h2 style="flex:1">${esc(t('myClasses'))}</h2>
       ${list && list.length ? `<button class="btn btn--ghost" style="min-height:38px;padding:8px 16px;font-size:13.5px" id="newClass">＋ ${esc(t('createClass'))}</button>` : ''}
     </div>`;
+
+  // A failed fetch used to sit on "Loading…" forever. It gets its own state
+  // and a way out instead — the teacher is standing in front of a class.
+  if (teacherClasses && teacherClasses.failed) {
+    return `<section class="sec reveal">${head}
+      <div class="card">
+        <p class="muted" style="font-weight:700;font-size:14px">${esc(t('rosterUnavailable'))}</p>
+        <button class="btn btn--ghost btn--block" style="margin-top:10px" data-act="retryClasses">${esc(t('retry'))}</button>
+      </div>
+    </section>`;
+  }
 
   if (!list) {
     return `<section class="sec reveal">${head}
@@ -4830,7 +4910,7 @@ function teacherClassesCard() {
           <button data-cls="${esc(c.code)}" style="flex:1;min-width:0;text-align:left;display:flex;flex-direction:column;gap:3px" aria-pressed="${on ? 'true' : 'false'}">
             <span style="font-weight:800;font-size:15px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(c.name)}</span>
             <span class="muted" style="font-weight:700;font-size:13px">
-              <span class="mono">${esc(up)}</span> · ${c.members} ${esc(t('students'))}
+              <span class="mono">${esc(up)}</span> · ${Number(c.members) || 0} ${esc(t('students'))}
             </span>
           </button>
           <button class="icon-btn" data-copy-cls="${esc(up)}" aria-label="${esc(t('copyCode'))}">📋</button>
@@ -4891,8 +4971,13 @@ function openCreateClassSheet() {
         goBtn.disabled = false; goBtn.textContent = t('createClass');
         // 403 is the only failure a teacher can act on: the account they are
         // signed in with is registered as a student.
-        errEl.textContent = (err && (err.status === 403 || err.code === 'FORBIDDEN'))
+        const msg = (err && (err.status === 403 || err.code === 'FORBIDDEN'))
           ? t('classCreateForbidden') : t('cloudOffline');
+        errEl.textContent = msg;
+        // Also a toast: the sheet can be dismissed by a stray tap on the
+        // scrim, and an error that only ever lived inside it would vanish
+        // with no trace that the class was never created.
+        toast('🏫 ' + msg);
         haptic(60);
       }
     };
@@ -4904,14 +4989,24 @@ function teacherRosterRows(members) {
     const lv = typeof m.level === 'number' ? m.level : levelForXp(m.xp || 0);
     const bs = xpForLevel(lv), be = xpForLevel(lv + 1);
     const pct = Math.max(0, Math.min(100, Math.round((((m.xp || 0) - bs) / Math.max(1, be - bs)) * 100)));
+    const streak = Number(m.streak) || 0;
     return `<tr>
       <td><span class="tbl__name">${esc(avatarEmoji(m.avatar))} ${esc(m.name || 'Student')}</span></td>
       <td class="mono">${lv}</td>
-      <td>${m.streak > 0 ? `🔥 ${m.streak}` : `<span class="muted">—</span>`}</td>
+      <td>${streak > 0 ? `🔥 ${streak}` : `<span class="muted">—</span>`}</td>
       <td style="min-width:120px"><span class="bar bar--thin"><span class="bar__fill" style="width:${pct}%"></span></span></td>
       <td class="muted" style="white-space:nowrap">${m.lastActive ? esc(timeAgo(m.lastActive)) : '—'}</td>
     </tr>`;
   }).join('');
+}
+
+/* "Today" is the school's day, not the device's. A phone left on a holiday
+   timezone (or simply set wrong) would otherwise move the whole staffroom's
+   "active today" line by hours. Asia/Kolkata has no DST, so the fixed +05:30
+   offset is exact. */
+function istDayStart() {
+  const k = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date());
+  return new Date(k + 'T00:00:00.000+05:30').getTime();
 }
 
 function viewTeacher() {
@@ -4925,22 +5020,24 @@ function viewTeacher() {
   // and its roster arriving, where the sample numbers would otherwise sit
   // above a real class code and read as that class's figures. Server rosters
   // carry a real last-active timestamp; the sample list only has a word.
-  const noClasses = signedIn() && !!teacherClasses && !teacherClasses.list.length;
+  const noClasses = signedIn() && !!teacherClasses && !teacherClasses.failed && !teacherClasses.list.length;
   const pending = !!sel && !live;
-  const dayStart = new Date(); dayStart.setHours(0, 0, 0, 0);
+  const dayStart = istDayStart();
   const memberLevel = m => (m.level != null ? m.level : levelForXp(m.xp || 0));
-  const count = noClasses ? 0 : live ? live.length : pending ? sel.members : ROSTER.length;
+  const count = noClasses ? 0 : live ? live.length : pending ? (Number(sel.members) || 0) : ROSTER.length;
   const avg = noClasses ? 0 : live
     ? (live.length ? Math.round(live.reduce((a, m) => a + memberLevel(m), 0) / live.length) : 0)
     : pending ? '—' : Math.round(ROSTER.reduce((a, s) => a + levelForXp(s.xp), 0) / ROSTER.length);
   const active = noClasses ? 0 : live
-    ? live.filter(m => m.lastActive && m.lastActive >= dayStart.getTime()).length
+    ? live.filter(m => m.lastActive && m.lastActive >= dayStart).length
     : pending ? '—' : ROSTER.filter(s => s.seen === 'Today').length;
 
   const code = sel ? String(sel.code).toUpperCase() : (S.classCode || 'VD7K2M').toUpperCase();
 
   return `<div class="view">
-    ${signedIn()
+    ${teacherClasses && !teacherClasses.failed
+      // "Live" is a claim about the numbers underneath it, so it waits for the
+      // real class list to arrive. Signing in is not the same as having data.
       ? `<p class="chip chip--flame" style="margin-bottom:14px">● ${esc(t('teacherLive'))}</p>`
       : `<div class="demo-note">🧪 ${esc(t('demoNote'))}</div>`}
 
@@ -4978,7 +5075,7 @@ function viewTeacher() {
    loading, loaded but empty, loaded with people — and burying four branches
    inside one template literal is how they end up silently wrong. */
 function teacherRosterBody(sel, roster, live) {
-  if (signedIn() && !sel && teacherClasses) {
+  if (signedIn() && !sel && teacherClasses && !teacherClasses.failed) {
     // Signed in with no classes: the sample table would be a lie, and the
     // classes card above already carries the call to action.
     return `<div class="empty-state">
@@ -4991,7 +5088,10 @@ function teacherRosterBody(sel, roster, live) {
     return `<p class="muted" style="font-weight:700;font-size:14px;padding:14px">${esc(t('rosterLoading'))}</p>`;
   }
   if (sel && roster && roster.failed) {
-    return `<p class="muted" style="font-weight:700;font-size:14px;padding:14px">${esc(t('rosterUnavailable'))}</p>`;
+    return `<div style="padding:14px">
+      <p class="muted" style="font-weight:700;font-size:14px">${esc(t('rosterUnavailable'))}</p>
+      <button class="btn btn--ghost btn--block" style="margin-top:10px" data-act="retryRoster" data-code="${esc(sel.code)}">${esc(t('retry'))}</button>
+    </div>`;
   }
   if (live && !live.length) {
     return `<div class="empty-state">
@@ -5049,6 +5149,20 @@ function afterTeacher() {
 
   const nc = $('#newClass');
   if (nc) nc.onclick = () => { haptic(8); openCreateClassSheet(); };
+
+  // Retries drop the cached failure first, so the fetcher's own freshness
+  // check cannot decide the request has already been answered.
+  const rc = document.querySelector('[data-act="retryClasses"]');
+  if (rc) rc.onclick = () => { haptic(8); teacherClasses = null; fetchTeacherClasses(true); render(); };
+
+  const rr = document.querySelector('[data-act="retryRoster"]');
+  if (rr) rr.onclick = () => {
+    const code = rr.dataset.code;
+    haptic(8);
+    delete classRosters[code];
+    fetchClassRoster(code);
+    render();
+  };
 
   fetchTeacherClasses(false);
   if (sel) fetchClassRoster(sel.code);
@@ -5344,7 +5458,12 @@ function fetchSchoolStats() {
   if (!signedIn() || schoolStatsLoading) return;
   if (schoolStats && Date.now() - schoolStats.at < 60e3) return;
   schoolStatsLoading = true;
+  // Whole-school numbers are the last thing that may outlive the account they
+  // were fetched for: an answer landing after sign-out would put one school's
+  // figures on the next principal's screen.
+  const tok = authToken();
   api('/journey/school').then(p => {
+    if (authToken() !== tok) return;
     const d = p && p.data;
     if (d && typeof d.students === 'number') {
       schoolStats = { data: d, at: Date.now() };
@@ -5375,11 +5494,11 @@ function viewPrincipal() {
     <p style="font-family:var(--font-display);font-weight:700;font-size:17px;color:var(--dim);margin-bottom:16px">${esc(SCHOOL_DATA.name)}${sv ? ' ' + sampleChip() : ''}</p>
 
     <div class="stats stagger" style="margin-bottom:24px">
-      <div class="card stat" style="--i:0"><div class="stat__k">${sv ? sv.students : totalStudents}</div><div class="stat__l">${esc(t('students'))}</div></div>
-      <div class="card stat" style="--i:1"><div class="stat__k">${sv ? sv.activeToday : totalActive}</div><div class="stat__l">${esc(t('activeToday'))}</div></div>
+      <div class="card stat" style="--i:0"><div class="stat__k">${sv ? (Number(sv.students) || 0) : totalStudents}</div><div class="stat__l">${esc(t('students'))}</div></div>
+      <div class="card stat" style="--i:1"><div class="stat__k">${sv ? (Number(sv.activeToday) || 0) : totalActive}</div><div class="stat__l">${esc(t('activeToday'))}</div></div>
       ${sv
-        ? `<div class="card stat" style="--i:2"><div class="stat__k">${sv.avgLevel}</div><div class="stat__l">${esc(t('avgLevel'))}</div></div>
-           <div class="card stat" style="--i:3"><div class="stat__k">${sv.teachers}</div><div class="stat__l">${esc(t('teachersLabel'))}</div></div>`
+        ? `<div class="card stat" style="--i:2"><div class="stat__k">${Number(sv.avgLevel) || 0}</div><div class="stat__l">${esc(t('avgLevel'))}</div></div>
+           <div class="card stat" style="--i:3"><div class="stat__k">${Number(sv.teachers) || 0}</div><div class="stat__l">${esc(t('teachersLabel'))}</div></div>`
         : `<div class="card stat" style="--i:2"><div class="stat__k">${avgXp.toLocaleString()}</div><div class="stat__l">${esc(t('avgXp'))}</div></div>
            <div class="card stat" style="--i:3"><div class="stat__k">${openFlags}</div><div class="stat__l">${esc(t('flags'))}</div></div>`}
     </div>
@@ -5388,7 +5507,7 @@ function viewPrincipal() {
       <p style="font-size:12px;font-weight:900;letter-spacing:1.4px;text-transform:uppercase;color:var(--volt)">🏆 ${esc(t('topClass'))}</p>
       <h3 style="font-size:24px;color:#fff;margin-top:4px">${esc(liveTop ? liveTop.name : topClass.name)}</h3>
       <p style="opacity:.8;font-weight:700">${liveTop
-        ? `${esc(t('avgLevel'))} ${liveTop.avgLevel} · ${liveTop.activeThisWeek}/${liveTop.members} ${esc(t('activeThisWeek').toLowerCase())}`
+        ? `${esc(t('avgLevel'))} ${Number(liveTop.avgLevel) || 0} · ${Number(liveTop.activeThisWeek) || 0}/${Number(liveTop.members) || 0} ${esc(t('activeThisWeek').toLowerCase())}`
         : `${esc(topClass.teacher)} · ${topClass.avgXp.toLocaleString()} avg XP · ${topClass.active}/${topClass.students} active today`}</p>
     </div>`}
 
@@ -5408,16 +5527,18 @@ function viewPrincipal() {
         <tbody>
           ${liveClasses
             ? liveClasses.map((c,i) => {
-                const pct = c.members ? Math.round((c.activeThisWeek / c.members) * 100) : 0;
+                const members = Number(c.members) || 0;
+                const weekActive = Number(c.activeThisWeek) || 0;
+                const pct = members ? Math.round((weekActive / members) * 100) : 0;
                 const grp = CLASS_GROUPS[c.classGroup];
                 return `<tr style="animation:cardIn .4s var(--ease) both;animation-delay:${i*50}ms">
                   <td><span style="font-weight:700">${esc(c.name)}</span></td>
                   <td class="muted">${esc(grp ? L(grp.label) : c.classGroup)}</td>
-                  <td class="mono">${c.members}</td>
-                  <td class="mono" style="color:var(--volt-deep);font-weight:700">${c.avgLevel}</td>
+                  <td class="mono">${members}</td>
+                  <td class="mono" style="color:var(--volt-deep);font-weight:700">${Number(c.avgLevel) || 0}</td>
                   <td>
                     <span class="bar bar--thin" style="min-width:80px;display:inline-block"><span class="bar__fill" style="width:${pct}%"></span></span>
-                    <span class="muted mono" style="font-size:13px;margin-left:6px">${c.activeThisWeek}/${c.members}</span>
+                    <span class="muted mono" style="font-size:13px;margin-left:6px">${weekActive}/${members}</span>
                   </td>
                 </tr>`;
               }).join('')
