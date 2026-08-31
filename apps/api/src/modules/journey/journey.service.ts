@@ -110,7 +110,6 @@ function nextStreak(p: JourneyProfile, now: Date): { streak: number; longest: nu
 interface Mutation {
   xp: number;
   timeline?: { kind: string; label: string; meta?: Prisma.InputJsonValue };
-  patch: Prisma.JourneyProfileUpdateInput;
 }
 
 // Applies one event against the in-memory (row-locked) profile draft.
@@ -131,7 +130,6 @@ function applyEvent(
       return {
         xp: XP_TABLE.tool,
         timeline: { kind: "tool", label: slug },
-        patch: { toolsSeen: { push: slug } },
       };
     }
     case "quiz_completed": {
@@ -149,7 +147,6 @@ function applyEvent(
       return {
         xp,
         timeline: { kind: "quiz", label: slug, meta: { pct } },
-        patch: { toolScores: scores },
       };
     }
     case "quest_completed": {
@@ -159,7 +156,6 @@ function applyEvent(
       return {
         xp: XP_TABLE.quest,
         timeline: { kind: "quest", label: "Daily quest" },
-        patch: { questsDone: draft.questsDone, questDoneOn: now },
       };
     }
     case "curriculum_prompt": {
@@ -169,7 +165,6 @@ function applyEvent(
       return {
         xp: XP_TABLE.curriculumPrompt,
         timeline: { kind: "chapter", label: title ?? chapterSlug, meta: { chapterSlug } },
-        patch: { chaptersUsed: { push: chapterSlug } },
       };
     }
     case "prompt_built": {
@@ -185,14 +180,13 @@ function applyEvent(
       return {
         xp,
         timeline: xp > 0 ? { kind: "prompt", label: tplKey } : undefined,
-        patch: isNewTemplate ? { promptTemplatesUsed: { push: tplKey } } : {},
       };
     }
     case "starter_step": {
       const { key } = ev.payload;
       if (draft.starterDone.includes(key)) return null;
       draft.starterDone = [...draft.starterDone, key];
-      return { xp: XP_TABLE.starterStep, patch: { starterDone: { push: key } } };
+      return { xp: XP_TABLE.starterStep };
     }
     case "upskill_module": {
       const { key } = ev.payload;
@@ -201,24 +195,23 @@ function applyEvent(
       return {
         xp: XP_TABLE.upskillModule,
         timeline: { kind: "prompt", label: `Upskill: ${key}` },
-        patch: { teacherModulesDone: { push: key } },
       };
     }
     case "class_join": {
       if (draft.classCode === ev.payload.code) return null;
       const firstJoin = draft.classCode.length === 0;
       draft.classCode = ev.payload.code;
-      return { xp: firstJoin ? XP_TABLE.classJoin : 0, patch: { classCode: draft.classCode } };
+      return { xp: firstJoin ? XP_TABLE.classJoin : 0 };
     }
     case "avatar_set": {
       if (draft.avatar === ev.payload.avatar) return null;
       draft.avatar = ev.payload.avatar;
-      return { xp: 0, patch: { avatar: draft.avatar } };
+      return { xp: 0 };
     }
     case "settings": {
       if (!ev.payload.locale || draft.locale === ev.payload.locale) return null;
       draft.locale = ev.payload.locale;
-      return { xp: 0, patch: { locale: draft.locale } };
+      return { xp: 0 };
     }
   }
 }
@@ -251,17 +244,29 @@ async function finalize(
   const badgeDates = { ...((draft.badgeDates ?? {}) as Record<string, number>) };
   for (const k of newBadges) badgeDates[k] = now.getTime();
 
+  // Absolute writes of the draft are safe here: every mutating path holds
+  // the FOR UPDATE row lock, so the draft is the only in-flight version.
+  // (Field-level `push` patches were tried first — two events touching the
+  // same array in one batch clobbered each other via Object.assign.)
   const data: Prisma.JourneyProfileUpdateInput = {
     streak: draft.streak,
     longestStreak: draft.longestStreak,
     lastActiveDate: now,
+    xp: draft.xp,
+    questsDone: draft.questsDone,
+    questDoneOn: draft.questDoneOn,
+    classCode: draft.classCode,
+    avatar: draft.avatar,
+    locale: draft.locale,
+    toolsSeen: draft.toolsSeen,
+    toolScores: (draft.toolScores ?? {}) as Prisma.InputJsonValue,
+    chaptersUsed: draft.chaptersUsed,
+    promptTemplatesUsed: draft.promptTemplatesUsed,
+    starterDone: draft.starterDone,
+    teacherModulesDone: draft.teacherModulesDone,
+    badges: [...draft.badges, ...newBadges],
+    badgeDates,
   };
-  if (awardedXP > 0) data.xp = { increment: awardedXP };
-  if (newBadges.length) {
-    data.badges = { push: newBadges };
-    data.badgeDates = badgeDates;
-  }
-  for (const m of mutations) Object.assign(data, m.patch);
 
   const updated = await tx.journeyProfile.update({ where: { userId: profile.userId }, data });
 
@@ -393,7 +398,6 @@ export async function addCreation(
     const mutation: Mutation = {
       xp,
       timeline: { kind: "creation", label: input.title },
-      patch: {},
     };
     const { updated, newBadges } = await finalize(tx, profile, draft, [mutation], now);
 
