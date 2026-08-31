@@ -2,7 +2,7 @@
 // All primary keys use cuid(). Soft deletes on user-generated content.
 
 generator client {
-  provider = "prisma-client-js"
+  provider        = "prisma-client-js"
   previewFeatures = ["fullTextSearchPostgres"]
 }
 
@@ -47,6 +47,18 @@ enum XPSource {
   STREAK_BONUS
   BADGE_EARNED
   TEACHER_BONUS
+  // Journey (SPA) sources — additive, used only by the journey module.
+  JOURNEY_ONBOARD
+  JOURNEY_TOOL_EXPLORED
+  JOURNEY_QUIZ_PASS
+  JOURNEY_QUEST
+  JOURNEY_CURRICULUM_PROMPT
+  JOURNEY_PROMPT_BUILT
+  JOURNEY_CREATION
+  JOURNEY_STARTER_STEP
+  JOURNEY_CLASS_JOIN
+  JOURNEY_UPSKILL
+  JOURNEY_BADGE
 }
 
 enum ToolCategory {
@@ -85,39 +97,42 @@ model School {
 }
 
 model User {
-  id               String             @id @default(cuid())
-  name             String?
-  email            String?            @unique
-  emailVerified    DateTime?
-  passwordHash     String?
-  image            String?
-  role             UserRole
-  onboardingStatus OnboardingStatus   @default(NOT_STARTED)
-  dateOfBirth      DateTime?          // Required for minor-detection (DPDP Act 2023)
-  gradeLevel       Int?
-  studentId        String?
-  schoolId         String?
-  school           School?            @relation("SchoolMembers", fields: [schoolId], references: [id])
-  administeredSchool School?          @relation("SchoolAdmin")
-  taughtClasses    Class[]            @relation("ClassTeacher")
-  classMemberships ClassMember[]
-  assignments      Assignment[]       @relation("AssignmentCreator")
-  submissions      Submission[]
-  xpTransactions   XPTransaction[]
-  badges           UserBadge[]
-  dailyChallenges  DailyChallenge[]
-  notifications    Notification[]
-  streak           Streak?
-  auditLogs        AuditLog[]
-  parentalConsent  ParentalConsent?
-  authoredLessonPlans LessonPlan[]   @relation("LessonPlanAuthor")
-  lastActiveAt     DateTime           @default(now())
-  createdAt        DateTime           @default(now())
-  updatedAt        DateTime           @updatedAt
+  id                  String            @id @default(cuid())
+  name                String?
+  email               String?           @unique
+  emailVerified       DateTime?
+  passwordHash        String?
+  image               String?
+  role                UserRole
+  onboardingStatus    OnboardingStatus  @default(NOT_STARTED)
+  dateOfBirth         DateTime? // Required for minor-detection (DPDP Act 2023)
+  gradeLevel          Int?
+  studentId           String?
+  schoolId            String?
+  school              School?           @relation("SchoolMembers", fields: [schoolId], references: [id])
+  administeredSchool  School?           @relation("SchoolAdmin")
+  taughtClasses       Class[]           @relation("ClassTeacher")
+  classMemberships    ClassMember[]
+  assignments         Assignment[]      @relation("AssignmentCreator")
+  submissions         Submission[]
+  xpTransactions      XPTransaction[]
+  badges              UserBadge[]
+  dailyChallenges     DailyChallenge[]
+  notifications       Notification[]
+  streak              Streak?
+  auditLogs           AuditLog[]
+  parentalConsent     ParentalConsent?
+  authoredLessonPlans LessonPlan[]      @relation("LessonPlanAuthor")
+  journeyProfile      JourneyProfile?
+  journeyCreations    JourneyCreation[]
+  journeyEvents       JourneyEvent[]
+  lastActiveAt        DateTime          @default(now())
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
 
   // NextAuth
-  accounts  Account[]
-  sessions  Session[]
+  accounts Account[]
+  sessions Session[]
 
   @@index([role])
   @@index([schoolId])
@@ -143,7 +158,7 @@ model ParentalConsent {
   status             ConsentStatus @default(PENDING)
   parentEmail        String?
   parentName         String?
-  parentRelationship String?       // e.g. "mother", "legal guardian"
+  parentRelationship String? // e.g. "mother", "legal guardian"
   token              String        @unique // opaque single-use URL token
   tokenExpiresAt     DateTime
   respondedAt        DateTime?
@@ -219,39 +234,39 @@ model Session {
 }
 
 model Tool {
-  id          String        @id @default(cuid())
-  name        String
-  category    ToolCategory
-  description String        @db.Text
-  logoUrl     String
-  brandColor  String        @default("#ffffff")
+  id             String         @id @default(cuid())
+  name           String
+  category       ToolCategory
+  description    String         @db.Text
+  logoUrl        String
+  brandColor     String         @default("#ffffff")
   // Where students go when they click "Open Tool". Without this, the
   // detail page used to fall back to a Google search — useless.
-  websiteUrl  String?
-  useCases    String[]
-  subjects    String[]
+  websiteUrl     String?
+  useCases       String[]
+  subjects       String[]
   // Rich teaching content surfaced on the detail page. Authored by
   // Voldebug faculty when seeding; admins can edit via /admin/tools.
   howTo          String[]
   examplePrompts String[]
   proTips        String[]
-  usageCount  Int           @default(0)
-  assignments Assignment[]
-  lessonPlans LessonPlan[]
-  promptRecipes PromptRecipe[]
-  createdAt   DateTime      @default(now())
-  updatedAt   DateTime      @updatedAt
+  usageCount     Int            @default(0)
+  assignments    Assignment[]
+  lessonPlans    LessonPlan[]
+  promptRecipes  PromptRecipe[]
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
 
   @@index([category])
   @@map("tools")
 }
 
 enum PromptKind {
-  EXPLORE   // open-ended exploration prompts
-  VERIFY    // "check my work / answer" prompts
-  FEEDBACK  // ask AI to critique your draft
-  REFLECT   // metacognitive / "ask me questions" prompts
-  PRACTICE  // generate practice problems
+  EXPLORE // open-ended exploration prompts
+  VERIFY // "check my work / answer" prompts
+  FEEDBACK // ask AI to critique your draft
+  REFLECT // metacognitive / "ask me questions" prompts
+  PRACTICE // generate practice problems
   SUMMARIZE // condense long material
 }
 
@@ -264,40 +279,40 @@ enum PromptKind {
 // PromptRecipe is the bite-sized "show me a good prompt for this
 // chapter" answer.
 model PromptRecipe {
-  id            String     @id @default(cuid())
-  slug          String     @unique
-  title         String     // short label, e.g. "Compare two perspectives on the Salt March"
-  prompt        String     @db.Text  // the actual prompt text; may contain [placeholder] slots
-  description   String     @db.Text  // 1-2 sentences about when to use this
+  id          String @id @default(cuid())
+  slug        String @unique
+  title       String // short label, e.g. "Compare two perspectives on the Salt March"
+  prompt      String @db.Text // the actual prompt text; may contain [placeholder] slots
+  description String @db.Text // 1-2 sentences about when to use this
 
   // Curriculum metadata — same shape as LessonPlan so filters compose.
   subject       String
   gradeLevel    Int
-  board         String     // "CBSE" | "ICSE" | "All"
+  board         String // "CBSE" | "ICSE" | "All"
   chapter       String?
   chapterNumber Int?
-  topic         String?    // optional finer-grained topic within the chapter
+  topic         String? // optional finer-grained topic within the chapter
 
-  kind          PromptKind @default(EXPLORE)
+  kind PromptKind @default(EXPLORE)
 
   // Recommended tool. Optional because some prompts work in any chat AI.
   recommendedToolId String?
-  recommendedTool   Tool?  @relation(fields: [recommendedToolId], references: [id])
+  recommendedTool   Tool?   @relation(fields: [recommendedToolId], references: [id])
 
-  tags          String[]
+  tags String[]
 
   // Authorship / access
-  authorId      String?
-  isPublic      Boolean    @default(true)
-  isOfficial    Boolean    @default(false)
+  authorId   String?
+  isPublic   Boolean @default(true)
+  isOfficial Boolean @default(false)
 
   // Engagement
-  usageCount    Int        @default(0)
-  copyCount     Int        @default(0)
+  usageCount Int @default(0)
+  copyCount  Int @default(0)
 
-  createdAt     DateTime   @default(now())
-  updatedAt     DateTime   @updatedAt
-  deletedAt     DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
 
   @@index([subject])
   @@index([gradeLevel])
@@ -314,54 +329,54 @@ model PromptRecipe {
 // ethically" steps. A teacher clicks "Use this plan" to spin up an
 // Assignment pre-populated from the plan's fields.
 model LessonPlan {
-  id              String    @id @default(cuid())
-  slug            String    @unique
-  title           String
-  summary         String    @db.Text
+  id      String @id @default(cuid())
+  slug    String @unique
+  title   String
+  summary String @db.Text
 
   // Curriculum fields — designed so a principal / teacher can filter:
   //   "Class 9, CBSE Science, chapter 8"
-  subject         String    // e.g. "Science", "History", "English", "Mathematics"
-  gradeLevel      Int       // 6..12
-  board           String    // "CBSE", "ICSE", "IB", "State", "All"
-  chapter         String?   // e.g. "Force and Laws of Motion"
-  chapterNumber   Int?
+  subject       String // e.g. "Science", "History", "English", "Mathematics"
+  gradeLevel    Int // 6..12
+  board         String // "CBSE", "ICSE", "IB", "State", "All"
+  chapter       String? // e.g. "Force and Laws of Motion"
+  chapterNumber Int?
 
   // Pedagogy
-  difficulty      String    @default("medium") // "easy" | "medium" | "hard"
-  durationMinutes Int       @default(45)
+  difficulty         String   @default("medium") // "easy" | "medium" | "hard"
+  durationMinutes    Int      @default(45)
   learningObjectives String[]
 
   // AI integration — the heart of what makes this a Voldebug lesson plan.
   // JSON-structured: [{step, instruction, suggestedPrompt, expectedLearning, timeMinutes}]
   aiActivities    Json
   suggestedToolId String?
-  suggestedTool   Tool?     @relation(fields: [suggestedToolId], references: [id])
+  suggestedTool   Tool?   @relation(fields: [suggestedToolId], references: [id])
 
   // Supporting materials. [{type: "link"|"pdf"|"video", title, url}]
-  resources       Json      @default("[]")
+  resources Json @default("[]")
 
   // Optional rubric skeleton the teacher can customize on use.
   // {criteria: [{name, weight, descriptors: {excellent, good, needs_work}}]}
-  rubricTemplate  Json?
+  rubricTemplate Json?
 
   // Discovery + ranking
-  tags            String[]
+  tags String[]
 
   // Authorship — null == Voldebug faculty seed; else a teacher's creation.
-  authorId        String?
-  author          User?     @relation("LessonPlanAuthor", fields: [authorId], references: [id])
+  authorId String?
+  author   User?   @relation("LessonPlanAuthor", fields: [authorId], references: [id])
 
   // Access control. isOfficial == Voldebug-vetted (gold badge in UI).
-  isPublic        Boolean   @default(true)
-  isOfficial      Boolean   @default(false)
+  isPublic   Boolean @default(true)
+  isOfficial Boolean @default(false)
 
   // Engagement metrics
-  usageCount      Int       @default(0)
+  usageCount Int @default(0)
 
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
-  deletedAt       DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
 
   @@index([subject])
   @@index([gradeLevel])
@@ -387,11 +402,11 @@ model Assignment {
   status            AssignmentStatus @default(DRAFT)
   submissionFormats String[]
   notifyOnPublish   Boolean          @default(true)
-  createdAt        DateTime         @default(now())
-  updatedAt        DateTime         @updatedAt
-  deletedAt        DateTime?
-  submissions      Submission[]
-  auditLogs        AuditLog[]
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+  deletedAt         DateTime?
+  submissions       Submission[]
+  auditLogs         AuditLog[]
 
   @@index([classId])
   @@index([creatorId])
@@ -474,30 +489,30 @@ model UserBadge {
 }
 
 model Streak {
-  id            String   @id @default(cuid())
-  userId        String   @unique
-  user          User     @relation(fields: [userId], references: [id])
-  currentStreak Int      @default(0)
-  longestStreak Int      @default(0)
+  id             String   @id @default(cuid())
+  userId         String   @unique
+  user           User     @relation(fields: [userId], references: [id])
+  currentStreak  Int      @default(0)
+  longestStreak  Int      @default(0)
   lastActiveDate DateTime
-  bonusXP       Int      @default(0)
-  updatedAt     DateTime @updatedAt
+  bonusXP        Int      @default(0)
+  updatedAt      DateTime @updatedAt
 
   @@index([userId])
   @@map("streaks")
 }
 
 model DailyChallenge {
-  id          String   @id @default(cuid())
+  id          String    @id @default(cuid())
   userId      String
-  user        User     @relation(fields: [userId], references: [id])
+  user        User      @relation(fields: [userId], references: [id])
   date        String
   action      String
   toolId      String?
-  completed   Boolean  @default(false)
+  completed   Boolean   @default(false)
   completedAt DateTime?
   xpAwarded   Int?
-  createdAt   DateTime @default(now())
+  createdAt   DateTime  @default(now())
 
   @@unique([userId, date])
   @@index([userId])
@@ -531,40 +546,40 @@ model Notification {
 // populate `flagReasons`. `isFlagged` is derived (= flagReasons not empty)
 // and kept for fast index-only queries on the Principal Dashboard.
 model AuditLog {
-  id            String   @id @default(cuid())
-  studentId     String
-  student       User     @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  id           String      @id @default(cuid())
+  studentId    String
+  student      User        @relation(fields: [studentId], references: [id], onDelete: Cascade)
   // Optional link to the assignment the student was working on at the time.
   // Lets the teacher integrity report scope to "AI activity around this
   // submission" instead of all-time.
-  assignmentId  String?
-  assignment    Assignment? @relation(fields: [assignmentId], references: [id])
+  assignmentId String?
+  assignment   Assignment? @relation(fields: [assignmentId], references: [id])
 
-  promptText    String   @db.Text
-  aiResponse    String   @db.Text
-  toolUsed      String
+  promptText String @db.Text
+  aiResponse String @db.Text
+  toolUsed   String
 
   // Hashes (sha256, hex) for cheap deduplication and identical-output
   // detection across students. Cheaper than a full Text index.
-  promptHash    String?
-  responseHash  String?
+  promptHash   String?
+  responseHash String?
 
   // Token-ish counts (server-computed, word-split fallback). Used by
   // rules and surfaced to the teacher.
-  promptLength  Int      @default(0)
-  responseLength Int     @default(0)
+  promptLength   Int @default(0)
+  responseLength Int @default(0)
 
   // Detection output. Empty array == not flagged. Each entry is a
   // string from AiIntegrityFlag (see modules/integrity/rules.ts).
-  flagReasons   String[] @default([])
-  isFlagged     Boolean  @default(false)
+  flagReasons String[] @default([])
+  isFlagged   Boolean  @default(false)
 
   // Where the data came from — "manual_paste" today; "voldebug_chat" or
   // "browser_ext" later.
-  source        String   @default("manual_paste")
+  source String @default("manual_paste")
 
-  timestamp     DateTime @default(now())
-  createdAt     DateTime @default(now())
+  timestamp DateTime @default(now())
+  createdAt DateTime @default(now())
 
   @@index([studentId])
   @@index([assignmentId])
@@ -583,9 +598,9 @@ model AuditLog {
 // `metadata` is a JSON blob of action-specific context (e.g. old/new role).
 model SecurityAuditLog {
   id           String   @id @default(cuid())
-  action       String   // see SECURITY_AUDIT_ACTIONS in audit.service.ts
+  action       String // see SECURITY_AUDIT_ACTIONS in audit.service.ts
   actorId      String?
-  actorEmail   String?  // captured at time-of-action so a deleted user is still traceable
+  actorEmail   String? // captured at time-of-action so a deleted user is still traceable
   actorRole    String?
   targetUserId String?
   ip           String?
@@ -598,4 +613,71 @@ model SecurityAuditLog {
   @@index([targetUserId])
   @@index([createdAt])
   @@map("security_audit_logs")
+}
+
+// ─── Journey (gamified SPA) ──────────────────────────────────────────────
+// Server-owned progress for the /app single-page experience. Deliberately
+// separate from the assignment-centric gamification tables above so the two
+// systems can evolve independently; XP still audits into XPTransaction.
+
+model JourneyProfile {
+  id                  String    @id @default(cuid())
+  userId              String    @unique
+  user                User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  journeyRole         String    @default("student") // student|teacher|principal|parent — SPA persona, carries no backend privileges
+  classGroup          String    @default("middle") // junior|middle|senior
+  avatar              String    @default("fox")
+  locale              String    @default("en")
+  classCode           String    @default("")
+  xp                  Int       @default(0) // cache; ledger of record is XPTransaction
+  questsDone          Int       @default(0)
+  questDoneOn         DateTime?
+  streak              Int       @default(1)
+  longestStreak       Int       @default(1)
+  lastActiveDate      DateTime?
+  onboardedAt         DateTime?
+  toolsSeen           String[]  @default([])
+  chaptersUsed        String[]  @default([])
+  promptTemplatesUsed String[]  @default([])
+  starterDone         String[]  @default([])
+  teacherModulesDone  String[]  @default([])
+  badges              String[]  @default([])
+  badgeDates          Json      @default("{}")
+  toolScores          Json      @default("{}")
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  @@index([classCode, xp(sort: Desc)])
+  @@index([xp(sort: Desc)])
+  @@map("journey_profiles")
+}
+
+model JourneyCreation {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title     String
+  tool      String
+  link      String?
+  note      String?   @db.Text
+  emoji     String    @default("✨")
+  createdAt DateTime  @default(now())
+  deletedAt DateTime?
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@map("journey_creations")
+}
+
+model JourneyEvent {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  kind      String // timeline kind: tool|quiz|chapter|prompt|creation|quest|badge|level
+  label     String
+  meta      Json?
+  xpAwarded Int      @default(0)
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@map("journey_events")
 }

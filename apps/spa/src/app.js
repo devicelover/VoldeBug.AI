@@ -1,0 +1,6013 @@
+/* ===========================================================================
+   VOLDEBUG — AI Education Portal (working prototype)
+   ---------------------------------------------------------------------------
+   Single-page app, no build step. Hash routing so it deploys to Vercel as a
+   static site with zero rewrite config and still supports the back button.
+
+   The level curve, XP values and badge rules below are deliberately identical
+   to src/lib/gamification/* in the backend package, so what a teacher sees
+   here is exactly what the real engine will produce once it is wired up.
+
+   This build implements the 25 July 2026 Change Request from Ritesh Sir:
+     Section 3 — Curriculum-Linked Prompt Library (Board > Class > Subject >
+                 Chapter > Prompts)
+     Section 4 — AI Tools Library expanded to 50+, grouped into 6 categories
+     Section 5 — Principal Dashboard (new role, school-wide + journey + flags)
+     Section 6 — Teacher "Magic AI Tools" + self-upskilling track
+     Section 7 — Platform-wide guardrails/proctoring signal
+   Honesty notes are left inline wherever a feature is a UX prototype rather
+   than a live backend capability — see the README for the full rundown.
+   =========================================================================== */
+
+/* ---------------------------------------------------------------- constants */
+
+const C = 25, MAX_LEVEL = 50;
+const xpForLevel = L => { const n = Math.max(1, Math.min(MAX_LEVEL, L)); return C * (n - 1) * n; };
+const levelForXp = xp => xp <= 0 ? 1 : Math.max(1, Math.min(MAX_LEVEL, Math.floor((C + Math.sqrt(C * C + 4 * C * xp)) / (2 * C))));
+
+const XP = { tool: 75, quizPass: 120, quizPerfect: 80, quest: 200, onboard: 50, avatar: 25, classJoin: 100, curriculumPrompt: 60, promptBuilt: 40, creation: 90, starterStep: 60 };
+
+const TITLES = [
+  [1, 'Curious Beginner', 'जिज्ञासु शुरुआत'], [5, 'Prompt Explorer', 'प्रॉम्प्ट खोजी'],
+  [10, 'Tool Tinkerer', 'टूल कारीगर'], [15, 'Prompt Crafter', 'प्रॉम्प्ट शिल्पी'],
+  [20, 'AI Navigator', 'एआई नाविक'], [28, 'Model Whisperer', 'मॉडल मर्मज्ञ'],
+  [36, 'Prompt Architect', 'प्रॉम्प्ट वास्तुकार'], [45, 'AI Sensei', 'एआई गुरु']
+];
+const titleFor = L => TITLES.filter(t => L >= t[0]).pop();
+
+const AVATARS = [
+  { k: 'fox', e: '🦊', n: 'Ember' }, { k: 'robot', e: '🤖', n: 'Bolt' },
+  { k: 'owl', e: '🦉', n: 'Professor' }, { k: 'panda', e: '🐼', n: 'Bamboo' },
+  { k: 'cat', e: '🐱', n: 'Whiskers' }, { k: 'rocket', e: '🚀', n: 'Comet' },
+  { k: 'alien', e: '👽', n: 'Nova' }, { k: 'dino', e: '🦖', n: 'Rex' }
+];
+
+/* ------------------------------------------------------------------- tools */
+/* Six categories, straight from the change-request doc (Section 4.1).
+   Each gets its own landing view — "what do you want to make today" is a
+   more natural entry point for a student than a flat, undifferentiated list. */
+const CATS = [
+  { k: 'vibe-coding', c: '#5b6ef5', c2: '#8b5cf6', emoji: '🧑‍💻', en: 'Vibe Coding', hi: 'वाइब कोडिंग',
+    blurb: { en: 'Describe an app, site or game in plain words — AI builds it.', hi: 'ऐप, साइट या गेम को शब्दों में बताएँ — एआई बनाता है।' },
+    example: { en: 'Describe a simple app for your topic and watch AI build it.', hi: 'अपने विषय के लिए एक सरल ऐप बताएँ, एआई उसे बनाता है।' } },
+  { k: 'image-ai', c: '#e0448f', c2: '#f97362', emoji: '🎨', en: 'Generative Image AI', hi: 'इमेज एआई',
+    blurb: { en: 'Turn a text description into a picture.', hi: 'विवरण को चित्र में बदलें।' },
+    example: { en: 'Diagrams, posters or illustrations for a school project.', hi: 'स्कूल प्रोजेक्ट के लिए डायग्राम, पोस्टर या चित्र।' } },
+  { k: 'video-ai', c: '#8b46d6', c2: '#c159d8', emoji: '🎬', en: 'Generative Video AI', hi: 'वीडियो एआई',
+    blurb: { en: 'Text-to-video and AI-assisted video editing.', hi: 'टेक्स्ट-टू-वीडियो और एआई वीडियो एडिटिंग।' },
+    example: { en: 'A short explainer video or animated presentation.', hi: 'छोटा व्याख्यात्मक वीडियो या एनिमेटेड प्रस्तुति।' } },
+  { k: 'learning-research', c: '#0d9c8a', c2: '#3fc07a', emoji: '📚', en: 'Learning & Research', hi: 'अध्ययन और शोध',
+    blurb: { en: 'AI tools built for study, summaries and research.', hi: 'अध्ययन, सारांश और शोध के लिए एआई टूल।' },
+    example: { en: 'Summarise chapter material into notes and Q&A.', hi: 'अध्याय सामग्री को नोट्स और प्रश्नोत्तर में बदलें।' } },
+  { k: 'game-making', c: '#e5761c', c2: '#f2b012', emoji: '🎮', en: 'Fun / Game-Making', hi: 'मज़ा / गेम बनाना',
+    blurb: { en: 'Build simple games and playful, interactive projects.', hi: 'सरल गेम और मज़ेदार इंटरैक्टिव प्रोजेक्ट बनाएँ।' },
+    example: { en: 'Turn a science or maths idea into a small playable game.', hi: 'विज्ञान या गणित के विचार को छोटे खेलने योग्य गेम में बदलें।' } },
+  { k: 'gesture-ai', c: '#1899c4', c2: '#42c4d8', emoji: '🖐️', en: 'Hand-Movement / Gesture AI', hi: 'हाव-भाव / जेस्चर एआई',
+    blurb: { en: 'AI that reacts to motion, pose and gestures via camera.', hi: 'कैमरे से गति और हाव-भाव पहचानने वाला एआई।' },
+    example: { en: 'A hands-free, motion-controlled working model.', hi: 'हाथों के इशारों से चलने वाला वर्किंग मॉडल।' } }
+];
+const CAT_BY_KEY = new Map(CATS.map(c => [c.k, c]));
+
+const TOOLS = [
+  {
+    slug: 'chatgpt', e: '💬', cat: 'learning-research', n: { en: 'ChatGPT', hi: 'चैटजीपीटी' },
+    d: { en: 'A chat assistant that writes, explains and brainstorms with you.', hi: 'एक चैट सहायक जो लिखता, समझाता और विचार देता है।' },
+    prompt: { en: 'Explain the water cycle like I am 10, then quiz me on it.', hi: 'जल-चक्र को 10 साल के बच्चे जैसे समझाओ, फिर मुझसे सवाल पूछो।' },
+    quiz: [
+      { q: { en: 'ChatGPT gives you a date for a historical event. What should you do first?', hi: 'चैटजीपीटी किसी घटना की तारीख बताता है। पहले क्या करें?' },
+        o: [{ en: 'Use it in your homework right away', hi: 'तुरंत गृहकार्य में लिखें' }, { en: 'Check it against a textbook or trusted site', hi: 'किताब या भरोसेमंद स्रोत से जाँचें' }, { en: 'Ask ChatGPT if it is sure', hi: 'चैटजीपीटी से पूछें कि क्या वह निश्चित है' }, { en: 'Assume it is wrong', hi: 'मान लें कि यह गलत है' }], a: 1,
+        why: { en: 'AI can state wrong facts with total confidence. Asking it again does not verify anything — an outside source does.', hi: 'एआई पूरे विश्वास से गलत तथ्य भी बता सकता है। दोबारा पूछना जाँच नहीं है — बाहरी स्रोत ही जाँच है।' } },
+      { q: { en: 'Which prompt will get you the most useful answer?', hi: 'कौन-सा प्रॉम्प्ट सबसे उपयोगी उत्तर देगा?' },
+        o: [{ en: 'write about pollution', hi: 'प्रदूषण पर लिखो' }, { en: 'Write 150 words on air pollution in Delhi for a class 8 science project, with 3 causes.', hi: 'कक्षा 8 विज्ञान प्रोजेक्ट के लिए दिल्ली के वायु प्रदूषण पर 150 शब्द, 3 कारणों सहित।' }, { en: 'pollution essay please', hi: 'प्रदूषण निबंध प्लीज़' }, { en: 'tell me everything', hi: 'सब कुछ बताओ' }], a: 1,
+        why: { en: 'Audience, length, topic and format. Specific prompts get specific answers — this is the single biggest skill in the course.', hi: 'श्रोता, लंबाई, विषय और प्रारूप। विशिष्ट प्रॉम्प्ट विशिष्ट उत्तर देते हैं — यही सबसे बड़ा कौशल है।' } },
+      { q: { en: 'Is it okay to paste your friend\u2019s phone number into a chatbot?', hi: 'क्या दोस्त का फ़ोन नंबर चैटबॉट में डालना ठीक है?' },
+        o: [{ en: 'Yes, chatbots are private', hi: 'हाँ, चैटबॉट निजी होते हैं' }, { en: 'Only if you delete the chat', hi: 'सिर्फ़ तब जब चैट मिटा दें' }, { en: 'No — never share someone else\u2019s personal details', hi: 'नहीं — किसी और की निजी जानकारी कभी साझा न करें' }, { en: 'Yes, if they are your friend', hi: 'हाँ, अगर वे दोस्त हैं' }], a: 2,
+        why: { en: 'Anything you type may be stored and reviewed. Other people\u2019s details are not yours to share.', hi: 'जो आप लिखते हैं वह संग्रहित हो सकता है। दूसरों की जानकारी साझा करने का हक़ आपको नहीं है।' } },
+      { q: { en: 'Your teacher asks for your own essay. How should you use AI?', hi: 'शिक्षक आपका अपना निबंध माँगते हैं। एआई का उपयोग कैसे करें?' },
+        o: [{ en: 'Copy the AI answer and submit it', hi: 'एआई का उत्तर कॉपी करके जमा करें' }, { en: 'Use it to brainstorm, then write it yourself', hi: 'विचार पाने के लिए उपयोग करें, फिर स्वयं लिखें' }, { en: 'Change a few words and submit', hi: 'कुछ शब्द बदलकर जमा करें' }, { en: 'Do not use AI at all, ever', hi: 'एआई का उपयोग कभी न करें' }], a: 1,
+        why: { en: 'AI is a thinking partner, not a ghostwriter. Brainstorming with it and writing yourself is honest — and you learn more.', hi: 'एआई सोचने का साथी है, लेखक नहीं। उससे विचार लेकर स्वयं लिखना ईमानदारी है — और आप ज़्यादा सीखते हैं।' } }
+    ]
+  },
+  {
+    slug: 'claude', e: '🟠', cat: 'learning-research', n: { en: 'Claude', hi: 'क्लॉड' },
+    d: { en: 'A chat assistant known for long documents and careful reasoning.', hi: 'लंबे दस्तावेज़ और सावधान तर्क के लिए जाना जाने वाला चैट सहायक।' },
+    prompt: { en: 'Here are my chapter notes. Find the 3 ideas I have explained weakest, and tell me why.', hi: 'यह मेरे अध्याय के नोट्स हैं। मैंने जिन 3 विचारों को सबसे कमज़ोर समझाया है वे बताओ, और क्यों।' },
+    quiz: [
+      { q: { en: 'What is Claude especially useful for?', hi: 'क्लॉड किस काम के लिए ख़ास उपयोगी है?' },
+        o: [{ en: 'Playing music', hi: 'संगीत बजाना' }, { en: 'Working through a long piece of writing or a long document', hi: 'लंबे लेख या दस्तावेज़ पर काम करना' }, { en: 'Editing photos', hi: 'फ़ोटो संपादित करना' }, { en: 'Making video games run faster', hi: 'वीडियो गेम तेज़ चलाना' }], a: 1,
+        why: { en: 'It can hold a lot of text at once, so it suits long notes, essays and documents. Different assistants have different strengths — picking the right one is part of the skill.', hi: 'यह एक साथ बहुत सारा पाठ रख सकता है, इसलिए लंबे नोट्स, निबंध और दस्तावेज़ों के लिए उपयुक्त है। हर सहायक की अलग ख़ूबी होती है — सही चुनना भी एक कौशल है।' } },
+      { q: { en: 'Claude explains a science concept confidently. Do you still need to check it?', hi: 'क्लॉड एक वैज्ञानिक अवधारणा विश्वास से समझाता है। क्या फिर भी जाँच ज़रूरी है?' },
+        o: [{ en: 'No — it sounds sure of itself', hi: 'नहीं — यह आश्वस्त लगता है' }, { en: 'Only if the topic is difficult', hi: 'सिर्फ़ कठिन विषय पर' }, { en: 'Yes — every AI can be confidently wrong', hi: 'हाँ — हर एआई विश्वास से ग़लत हो सकता है' }, { en: 'No, if it is long it must be right', hi: 'नहीं, अगर लंबा है तो सही होगा' }], a: 2,
+        why: { en: 'This is true of every AI assistant without exception, including this one. Confidence in the writing tells you nothing about whether the fact is correct.', hi: 'यह हर एआई सहायक पर लागू है, बिना अपवाद। लिखने का आत्मविश्वास तथ्य के सही होने का प्रमाण नहीं है।' } },
+      { q: { en: 'Your class is told to use one AI tool for a task. How should you choose?', hi: 'कक्षा में एक काम के लिए एक एआई टूल चुनना है। कैसे चुनें?' },
+        o: [{ en: 'Whichever is most famous', hi: 'जो सबसे प्रसिद्ध हो' }, { en: 'Whichever fits the job you actually have', hi: 'जो आपके असल काम के लिए उपयुक्त हो' }, { en: 'Whichever your friend uses', hi: 'जो आपका दोस्त उपयोग करता हो' }, { en: 'Always the same one', hi: 'हमेशा वही एक' }], a: 1,
+        why: { en: 'Popularity is not a reason. A drawing tool will beat any chat assistant at drawing — match the tool to the task, not to the name you have heard most.', hi: 'लोकप्रियता कोई कारण नहीं है। चित्र बनाने में कोई भी चित्र-टूल चैट सहायक से बेहतर होगा — टूल को काम से मिलाओ, नाम से नहीं।' } },
+      { q: { en: 'You paste your whole essay in and ask for feedback. What is the best follow-up?', hi: 'आप पूरा निबंध डालकर सुझाव माँगते हैं। सबसे अच्छा अगला कदम क्या है?' },
+        o: [{ en: 'Ask it to rewrite the essay for you', hi: 'इससे पूरा निबंध दोबारा लिखवाएँ' }, { en: 'Ask it to explain why each suggestion improves the writing', hi: 'पूछें कि हर सुझाव लेखन को बेहतर क्यों बनाता है' }, { en: 'Submit whatever it produces', hi: 'जो निकले वही जमा कर दें' }, { en: 'Ignore the feedback', hi: 'सुझाव अनदेखा करें' }], a: 1,
+        why: { en: 'Asking why turns feedback into something you learn from. A rewrite improves one essay; understanding the reason improves every essay after it.', hi: '"क्यों" पूछना सुझाव को सीख में बदल देता है। दोबारा लिखवाना एक निबंध सुधारता है; कारण समझना आगे के सभी निबंध सुधारता है।' } }
+    ]
+  },
+  {
+    slug: 'gemini', e: '✦', cat: 'learning-research', n: { en: 'Gemini', hi: 'जेमिनाई' },
+    d: { en: 'Answers questions and can look things up on the web.', hi: 'सवालों के जवाब देता है और वेब पर खोज सकता है।' },
+    prompt: { en: 'Find 3 recent facts about ISRO missions and cite the sources.', hi: 'इसरो मिशनों के 3 हालिया तथ्य खोजो और स्रोत बताओ।' },
+    quiz: [
+      { q: { en: 'Why is a tool that cites sources useful for schoolwork?', hi: 'स्रोत बताने वाला टूल स्कूल के काम में क्यों उपयोगी है?' },
+        o: [{ en: 'It looks more professional', hi: 'यह पेशेवर दिखता है' }, { en: 'You can open the source and check the claim yourself', hi: 'आप स्रोत खोलकर दावा स्वयं जाँच सकते हैं' }, { en: 'It makes answers longer', hi: 'उत्तर लंबे हो जाते हैं' }, { en: 'Teachers cannot tell you used AI', hi: 'शिक्षक पता नहीं लगा सकते' }], a: 1,
+        why: { en: 'A citation is only useful if you actually click it. Sources let you verify instead of trust.', hi: 'स्रोत तभी उपयोगी है जब आप उसे खोलें। स्रोत भरोसे की जगह जाँच देते हैं।' } },
+      { q: { en: 'An AI cites a source that does not exist. This is called:', hi: 'एआई एक ऐसा स्रोत बताता है जो मौजूद नहीं। इसे कहते हैं:' },
+        o: [{ en: 'A hallucination', hi: 'हैलुसिनेशन' }, { en: 'A firewall', hi: 'फ़ायरवॉल' }, { en: 'An algorithm', hi: 'एल्गोरिदम' }, { en: 'A database', hi: 'डेटाबेस' }], a: 0,
+        why: { en: 'Hallucination means the model produced something plausible-sounding but false. Made-up citations are a classic case.', hi: 'हैलुसिनेशन यानी मॉडल ने विश्वसनीय लगने वाली पर झूठी बात बनाई। नकली स्रोत इसका आम उदाहरण है।' } },
+      { q: { en: 'Two AI tools give you opposite answers. What now?', hi: 'दो एआई टूल उल्टे जवाब देते हैं। अब क्या?' },
+        o: [{ en: 'Trust the longer answer', hi: 'लंबे उत्तर पर भरोसा करें' }, { en: 'Trust the newer tool', hi: 'नए टूल पर भरोसा करें' }, { en: 'Check a non-AI source to settle it', hi: 'गैर-एआई स्रोत से जाँचें' }, { en: 'Pick the one you like', hi: 'जो पसंद हो वह चुनें' }], a: 2,
+        why: { en: 'Length and newness are not evidence. When AI disagrees with AI, step outside AI.', hi: 'लंबाई या नयापन प्रमाण नहीं। जब एआई आपस में असहमत हों, एआई से बाहर जाएँ।' } },
+      { q: { en: 'Best use of AI when studying for an exam?', hi: 'परीक्षा की तैयारी में एआई का सबसे अच्छा उपयोग?' },
+        o: [{ en: 'Ask it to take the exam for you', hi: 'उससे परीक्षा दिलवाएँ' }, { en: 'Ask it to quiz you and explain what you got wrong', hi: 'उससे सवाल पुछवाएँ और गलतियाँ समझें' }, { en: 'Ask it to predict the paper', hi: 'उससे पेपर का अनुमान लगवाएँ' }, { en: 'Read its answers without trying yourself', hi: 'बिना कोशिश किए उत्तर पढ़ें' }], a: 1,
+        why: { en: 'Being tested and corrected is how memory forms. Reading answers feels productive and mostly is not.', hi: 'परखे जाना और सुधारा जाना ही याददाश्त बनाता है। सिर्फ़ उत्तर पढ़ना उपयोगी लगता है, होता नहीं।' } }
+    ]
+  },
+  {
+    slug: 'canva-ai', e: '🎨', cat: 'image-ai', n: { en: 'Canva AI', hi: 'कैनवा एआई' },
+    d: { en: 'Turns text descriptions into posters, slides and images.', hi: 'लिखे विवरण से पोस्टर, स्लाइड और चित्र बनाता है।' },
+    prompt: { en: 'A poster about saving water for a school corridor, bright and simple.', hi: 'स्कूल के गलियारे के लिए जल-बचत का चमकीला, सरल पोस्टर।' },
+    quiz: [
+      { q: { en: 'You generate an image of a "scientist". It shows only men. Why?', hi: 'आप "वैज्ञानिक" का चित्र बनाते हैं। सिर्फ़ पुरुष दिखते हैं। क्यों?' },
+        o: [{ en: 'Most scientists are men', hi: 'ज़्यादातर वैज्ञानिक पुरुष हैं' }, { en: 'The tool learned from biased data', hi: 'टूल ने पक्षपाती डेटा से सीखा' }, { en: 'It is a random glitch', hi: 'यह बेतरतीब गड़बड़ है' }, { en: 'Women are harder to draw', hi: 'महिलाएँ बनाना कठिन है' }], a: 1,
+        why: { en: 'Models copy patterns from their training images, including unfair ones. Noticing bias is a skill worth having.', hi: 'मॉडल अपने प्रशिक्षण चित्रों के पैटर्न दोहराते हैं, अनुचित पैटर्न भी। पक्षपात पहचानना ज़रूरी कौशल है।' } },
+      { q: { en: 'Can you sell a T-shirt with an AI image of a famous cartoon character?', hi: 'क्या किसी प्रसिद्ध कार्टून के एआई चित्र वाली टी-शर्ट बेच सकते हैं?' },
+        o: [{ en: 'Yes, AI made it so it is yours', hi: 'हाँ, एआई ने बनाया तो आपका है' }, { en: 'No — the character is still someone\u2019s property', hi: 'नहीं — किरदार अब भी किसी की संपत्ति है' }, { en: 'Yes, if you change the colour', hi: 'हाँ, अगर रंग बदल दें' }, { en: 'Only on weekends', hi: 'सिर्फ़ सप्ताहांत पर' }], a: 1,
+        why: { en: 'Copyright follows the character, not the tool that drew it.', hi: 'कॉपीराइट किरदार पर लागू होता है, बनाने वाले टूल पर नहीं।' } },
+      { q: { en: 'Your image comes out wrong. Best next step?', hi: 'चित्र गलत आया। अगला सबसे अच्छा कदम?' },
+        o: [{ en: 'Give up on the tool', hi: 'टूल छोड़ दें' }, { en: 'Press generate 30 times', hi: '30 बार जनरेट दबाएँ' }, { en: 'Add detail: style, colours, mood, what to leave out', hi: 'विवरण जोड़ें: शैली, रंग, भाव, क्या न हो' }, { en: 'Use a different language', hi: 'दूसरी भाषा इस्तेमाल करें' }], a: 2,
+        why: { en: 'Editing the prompt beats rerolling it. Saying what you do not want is as useful as saying what you do.', hi: 'प्रॉम्प्ट सुधारना दोबारा चलाने से बेहतर है। क्या नहीं चाहिए, यह बताना भी उतना ही उपयोगी है।' } },
+      { q: { en: 'When should you tell people an image was AI-generated?', hi: 'कब बताना चाहिए कि चित्र एआई से बना है?' },
+        o: [{ en: 'Never, it is embarrassing', hi: 'कभी नहीं, शर्म की बात है' }, { en: 'Whenever someone might mistake it for a real photo', hi: 'जब कोई इसे असली तस्वीर समझ सकता हो' }, { en: 'Only if asked directly', hi: 'सिर्फ़ पूछे जाने पर' }, { en: 'Only for school projects', hi: 'सिर्फ़ स्कूल प्रोजेक्ट में' }], a: 1,
+        why: { en: 'Labelling AI work is basic honesty, and it protects you when the image travels further than you expected.', hi: 'एआई कार्य को चिह्नित करना सीधी ईमानदारी है, और चित्र दूर तक पहुँचने पर आपकी रक्षा करता है।' } }
+    ]
+  },
+  { slug: 'notebooklm', e: '📓', cat: 'learning-research', n: { en: 'NotebookLM', hi: 'नोटबुकएलएम' }, d: { en: 'Reads your own notes and answers questions about them.', hi: 'आपके नोट्स पढ़कर उन पर सवालों के जवाब देता है।' }, prompt: { en: 'Summarise my chapter notes into 10 revision flashcards.', hi: 'मेरे अध्याय नोट्स से 10 रिवीज़न फ़्लैशकार्ड बनाओ।' }, quiz: null },
+  { slug: 'perplexity', e: '🔍', cat: 'learning-research', n: { en: 'Perplexity', hi: 'पर्प्लेक्सिटी' }, d: { en: 'A search engine that answers in full sentences with links.', hi: 'खोज इंजन जो लिंक के साथ पूरे वाक्यों में उत्तर देता है।' }, prompt: { en: 'What are 3 causes of the 1857 revolt? Cite sources.', hi: '1857 के विद्रोह के 3 कारण? स्रोत बताओ।' }, quiz: null },
+  { slug: 'suno', e: '🎵', cat: 'game-making', n: { en: 'Suno', hi: 'सुनो' }, d: { en: 'Writes and performs a song from a description.', hi: 'विवरण से गीत लिखकर गाता है।' }, prompt: { en: 'A cheerful song about the water cycle for class 6.', hi: 'कक्षा 6 के लिए जल-चक्र पर खुशनुमा गीत।' }, quiz: null },
+  { slug: 'runway', e: '🎬', cat: 'video-ai', n: { en: 'Runway', hi: 'रनवे' }, d: { en: 'Makes short video clips from text or images.', hi: 'टेक्स्ट या चित्र से छोटी वीडियो क्लिप बनाता है।' }, prompt: { en: 'A 4-second clip of a seed sprouting in fast motion.', hi: 'बीज अंकुरित होने की 4 सेकंड की तेज़ क्लिप।' }, quiz: null },
+  { slug: 'khanmigo', e: '🧮', cat: 'learning-research', n: { en: 'Khanmigo', hi: 'खानमीगो' }, d: { en: 'A maths tutor that guides you instead of giving answers.', hi: 'गणित शिक्षक जो उत्तर देने के बजाय राह दिखाता है।' }, prompt: { en: 'Help me solve this quadratic without telling me the answer.', hi: 'उत्तर बताए बिना यह द्विघात समीकरण हल करने में मदद करो।' }, quiz: null }
+];
+
+/* Tools without bespoke questions fall back to this set, so every tool in the
+   library is quizzable from day one rather than showing a dead end. */
+const GENERIC_QUIZ = [
+  { q: { en: 'What is the most important habit when using any AI tool?', hi: 'किसी भी एआई टूल का उपयोग करते समय सबसे ज़रूरी आदत?' },
+    o: [{ en: 'Trusting the first answer', hi: 'पहले उत्तर पर भरोसा' }, { en: 'Checking important facts elsewhere', hi: 'ज़रूरी तथ्य कहीं और जाँचना' }, { en: 'Using the longest prompt possible', hi: 'सबसे लंबा प्रॉम्प्ट लिखना' }, { en: 'Never asking follow-ups', hi: 'कभी आगे सवाल न पूछना' }], a: 1,
+    why: { en: 'Verification is the whole skill. Everything else is technique.', hi: 'जाँच ही असली कौशल है। बाकी सब तकनीक है।' } },
+  { q: { en: 'Which of these should you never type into an AI tool?', hi: 'इनमें से क्या एआई टूल में कभी नहीं लिखना चाहिए?' },
+    o: [{ en: 'A homework question', hi: 'गृहकार्य का सवाल' }, { en: 'Your home address or passwords', hi: 'अपना पता या पासवर्ड' }, { en: 'A topic you are curious about', hi: 'कोई जिज्ञासा का विषय' }, { en: 'A request for examples', hi: 'उदाहरण माँगना' }], a: 1,
+    why: { en: 'Personal and security details do not belong in a chat box, ever.', hi: 'निजी और सुरक्षा जानकारी चैट बॉक्स में कभी नहीं।' } },
+  { q: { en: 'A good prompt usually includes:', hi: 'अच्छे प्रॉम्प्ट में आमतौर पर होता है:' },
+    o: [{ en: 'Just one word', hi: 'सिर्फ़ एक शब्द' }, { en: 'Who it is for, how long, and what format', hi: 'किसके लिए, कितना लंबा, किस प्रारूप में' }, { en: 'Lots of capital letters', hi: 'बहुत सारे बड़े अक्षर' }, { en: 'A polite greeting only', hi: 'सिर्फ़ विनम्र अभिवादन' }], a: 1,
+    why: { en: 'Context beats politeness. Tell it the audience, the length and the shape you want.', hi: 'संदर्भ विनम्रता से बड़ा है। श्रोता, लंबाई और स्वरूप बताएँ।' } },
+  { q: { en: 'If AI writes your whole assignment, what have you lost?', hi: 'अगर एआई पूरा असाइनमेंट लिखे, तो आपने क्या खोया?' },
+    o: [{ en: 'Nothing, it saves time', hi: 'कुछ नहीं, समय बचा' }, { en: 'The practice that actually builds the skill', hi: 'वह अभ्यास जो असली कौशल बनाता है' }, { en: 'Only some marks', hi: 'सिर्फ़ कुछ अंक' }, { en: 'Your internet data', hi: 'अपना इंटरनेट डेटा' }], a: 1,
+    why: { en: 'The struggle is the learning. Outsourcing it feels efficient and quietly costs you the skill.', hi: 'संघर्ष ही सीखना है। उसे सौंप देना कुशल लगता है और चुपचाप कौशल छीन लेता है।' } }
+];
+
+/* ------------------------------------------------------------------ badges */
+
+const BADGES = [
+  { k: 'first-prompt', e: '✨', r: 'common', n: { en: 'First Prompt', hi: 'पहला प्रॉम्प्ट' }, h: { en: 'Try your first AI tool', hi: 'पहला एआई टूल आज़माएँ' }, need: c => c.tools >= 1, prog: c => [Math.min(c.tools, 1), 1] },
+  { k: 'toolbelt', e: '🧰', r: 'common', n: { en: 'Toolbelt', hi: 'औज़ार पेटी' }, h: { en: 'Explore 5 tools', hi: '5 टूल आज़माएँ' }, need: c => c.tools >= 5, prog: c => [Math.min(c.tools, 5), 5] },
+  { k: 'spark', e: '🔥', r: 'common', n: { en: 'On a Roll', hi: 'लगातार' }, h: { en: 'Learn 3 days in a row', hi: 'लगातार 3 दिन सीखें' }, need: c => c.streak >= 3, prog: c => [Math.min(c.streak, 3), 3] },
+  { k: 'quiz-ace', e: '🎓', r: 'rare', n: { en: 'Tool Expert', hi: 'टूल विशेषज्ञ' }, h: { en: 'Score 80% on a quiz', hi: 'क्विज़ में 80% लाएँ' }, need: c => c.mastered >= 1, prog: c => [Math.min(c.mastered, 1), 1] },
+  { k: 'week-warrior', e: '📅', r: 'rare', n: { en: 'Week Warrior', hi: 'सप्ताह योद्धा' }, h: { en: 'Keep a 7-day streak', hi: '7 दिन की लय बनाए रखें' }, need: c => c.streak >= 7, prog: c => [Math.min(c.streak, 7), 7] },
+  { k: 'level-10', e: '🚀', r: 'rare', n: { en: 'Double Digits', hi: 'दहाई पार' }, h: { en: 'Reach level 10', hi: 'स्तर 10 तक पहुँचें' }, need: c => c.level >= 10, prog: c => [Math.min(c.level, 10), 10] },
+  { k: 'classmate', e: '🏫', r: 'common', n: { en: 'Classmate', hi: 'सहपाठी' }, h: { en: 'Join a class with a code', hi: 'क्लास कोड से जुड़ें' }, need: c => c.inClass, prog: c => [c.inClass ? 1 : 0, 1] },
+  { k: 'perfect', e: '💯', r: 'epic', n: { en: 'Perfectionist', hi: 'पूर्णतावादी' }, h: { en: 'Get 3 perfect quizzes', hi: '3 क्विज़ में पूरे अंक' }, need: c => c.perfect >= 3, prog: c => [Math.min(c.perfect, 3), 3] },
+  { k: 'quest-runner', e: '🎯', r: 'rare', n: { en: 'Quest Runner', hi: 'मिशन धावक' }, h: { en: 'Finish 10 daily challenges', hi: '10 दैनिक चुनौतियाँ' }, need: c => c.quests >= 10, prog: c => [Math.min(c.quests, 10), 10] },
+  { k: 'level-20', e: '🏆', r: 'epic', n: { en: 'Twenty Up', hi: 'बीस पार' }, h: { en: 'Reach level 20', hi: 'स्तर 20 तक पहुँचें' }, need: c => c.level >= 20, prog: c => [Math.min(c.level, 20), 20] },
+  { k: 'polyglot', e: '🌏', r: 'legendary', n: { en: 'Polyglot', hi: 'बहुभाषी' }, h: { en: 'Master 6 tools', hi: '6 टूल में महारत' }, need: c => c.mastered >= 6, prog: c => [Math.min(c.mastered, 6), 6] },
+  { k: 'unstoppable', e: '⚡', r: 'legendary', n: { en: 'Unstoppable', hi: 'अजेय' }, h: { en: 'Keep a 30-day streak', hi: '30 दिन की लय' }, need: c => c.streak >= 30, prog: c => [Math.min(c.streak, 30), 30] },
+  { k: 'curriculum-first', e: '📖', r: 'common', n: { en: 'Chapter Starter', hi: 'अध्याय आरंभकर्ता' }, h: { en: 'Try a curriculum-linked prompt', hi: 'पाठ्यक्रम-आधारित प्रॉम्प्ट आज़माएँ' }, need: c => c.chapters >= 1, prog: c => [Math.min(c.chapters, 1), 1] },
+  { k: 'curriculum-five', e: '🗂️', r: 'rare', n: { en: 'Syllabus Regular', hi: 'पाठ्यक्रम नियमित' }, h: { en: 'Practise 5 different chapters', hi: '5 अलग अध्याय अभ्यास करें' }, need: c => c.chapters >= 5, prog: c => [Math.min(c.chapters, 5), 5] },
+  { k: 'category-explorer', e: '🧭', r: 'epic', n: { en: 'Category Explorer', hi: 'श्रेणी खोजी' }, h: { en: 'Try a tool from 4 different categories', hi: '4 अलग श्रेणियों से टूल आज़माएँ' }, need: c => c.catsUsed >= 4, prog: c => [Math.min(c.catsUsed, 4), 4] },
+  { k: 'prompt-starter', e: '🪄', r: 'common', n: { en: 'Prompt Builder', hi: 'प्रॉम्प्ट निर्माता' }, h: { en: 'Build your first AI prompt', hi: 'अपना पहला एआई प्रॉम्प्ट बनाएँ' }, need: c => c.promptTemplates >= 1, prog: c => [Math.min(c.promptTemplates, 1), 1] },
+  { k: 'prompt-sixpack', e: '🎨', r: 'epic', n: { en: 'Six of Six', hi: 'सभी छह' }, h: { en: 'Try all 6 prompt types — slides, diagrams, images, mind maps, video, quizzes', hi: 'सभी 6 प्रॉम्प्ट प्रकार आज़माएँ' }, need: c => c.promptTemplates >= 6, prog: c => [Math.min(c.promptTemplates, 6), 6] },
+  { k: 'first-creation', e: '🌟', r: 'common', n: { en: 'Made Something', hi: 'कुछ बनाया' }, h: { en: 'Save your first creation to your portfolio', hi: 'अपनी पहली रचना पोर्टफ़ोलियो में सहेजें' }, need: c => c.creations >= 1, prog: c => [Math.min(c.creations, 1), 1] },
+  { k: 'portfolio-five', e: '🖼️', r: 'rare', n: { en: 'Portfolio Builder', hi: 'पोर्टफ़ोलियो निर्माता' }, h: { en: 'Save 5 creations to your portfolio', hi: '5 रचनाएँ पोर्टफ़ोलियो में सहेजें' }, need: c => c.creations >= 5, prog: c => [Math.min(c.creations, 5), 5] },
+  { k: 'first-week', e: '🧭', r: 'rare', n: { en: 'Found Your Feet', hi: 'रास्ता मिल गया' }, h: { en: 'Finish all 5 steps of your first week', hi: 'पहले सप्ताह के सभी 5 चरण पूरे करें' }, need: c => c.starter >= 5, prog: c => [Math.min(c.starter, 5), 5] }
+];
+
+/* ------------------------------------------------------------------ quests */
+
+const QUESTS = [
+  { t: { en: 'Ask Gemini to explain photosynthesis', hi: 'जेमिनाई से प्रकाश-संश्लेषण समझें' }, d: { en: 'Then ask it to explain the same thing to a 5-year-old. Compare the answers — what changed?', hi: 'फिर वही बात 5 साल के बच्चे को समझाने को कहें। तुलना करें — क्या बदला?' } },
+  { t: { en: 'Write a poem about your city with AI', hi: 'एआई के साथ अपने शहर पर कविता लिखें' }, d: { en: 'Give it three details only a local would know. See how much better the poem gets.', hi: 'तीन ऐसी बातें दें जो सिर्फ़ स्थानीय जानता हो। देखें कविता कितनी बेहतर होती है।' } },
+  { t: { en: 'Catch an AI making a mistake', hi: 'एआई की गलती पकड़ें' }, d: { en: 'Ask about something you already know well. Find one thing it gets wrong and note it down.', hi: 'ऐसा कुछ पूछें जो आप अच्छे से जानते हों। एक गलती खोजें और लिखें।' } },
+  { t: { en: 'Turn your notes into flashcards', hi: 'अपने नोट्स को फ़्लैशकार्ड बनाएँ' }, d: { en: 'Paste today\u2019s class notes and ask for 10 question-answer cards for revision.', hi: 'आज के नोट्स दें और रिवीज़न के लिए 10 प्रश्न-उत्तर कार्ड माँगें।' } },
+  { t: { en: 'Design a poster for a cause you care about', hi: 'अपने पसंदीदा उद्देश्य का पोस्टर बनाएँ' }, d: { en: 'Describe the mood and colours you want. Try three versions before picking one.', hi: 'भाव और रंग बताएँ। एक चुनने से पहले तीन रूप आज़माएँ।' } }
+];
+
+/* -------------------------------------------------------------------- i18n */
+
+const T = {
+  en: {
+    home: 'Home', explore: 'Explore', badges: 'Badges', board: 'Class', profile: 'Profile', teacher: 'Teacher',
+    welcome: 'Welcome back,', dayStreak: 'day streak', inClass: 'in class', badgesEarned: 'badges', toolsTried: 'tools',
+    bestStreak: 'best run', todayMission: "Today's mission", challengeOfDay: 'Challenge of the day', complete: 'Complete',
+    done: 'Done', roadmap: 'Your learning path', roadmapSub: 'Finish a quiz to master a tool', keepGoing: 'Keep going',
+    startQuiz: 'Start quiz', tryPrompt: 'Try this prompt', copied: 'Prompt copied', open: 'Open tool',
+    question: 'Question', next: 'Next question', seeResults: 'See results', retry: 'Try again', backToPath: 'Back to path',
+    correct: 'Correct', yourScore: 'Your score', mastered: 'Mastered', explored: 'Explored', locked: 'Not started',
+    classBoard: 'Class leaderboard', boardSub: 'Only your class — never the whole platform', allTime: 'All time', thisWeek: 'This week',
+    settings: 'Settings', darkMode: 'Dark mode', sound: 'Sound effects', language: 'भाषा / Language',
+    installApp: 'Install app', install: 'Install', appInstalled: 'Installed',
+    installIOSHint: 'On iPhone or iPad: tap Share, then "Add to Home Screen".',
+    voiceInput: 'Speak instead of typing', voiceError: 'Could not hear that — try again',
+    readAloud: 'Read aloud',
+    certificate: 'Your certificate', certSub: 'Download it and share with your school', download: 'Download certificate',
+    signOut: 'Start over', joinClass: 'Join a class', classCode: 'Class code', join: 'Join',
+    demoNote: 'Prototype with example data — no live student figures shown.',
+    students: 'Students', avgLevel: 'Avg level', activeToday: 'Active today', assign: 'Assign mission',
+    classCodeLabel: 'Your class code', shareCode: 'Students enter this to join', copyCode: 'Copy code', codeCopied: 'Code copied',
+    student: 'Student', level: 'Level', streak: 'Streak', lastSeen: 'Last active', progress: 'Progress',
+    whoAreYou: 'Who are you?', pickAvatar: 'Pick your buddy', whatsYourName: "What's your name?",
+    student_r: 'Student', teacher_r: 'Teacher', parent_r: 'Parent', continue: 'Continue', skip: 'Skip for now',
+    onbSub1: 'This changes what you see next.', onbSub2: 'You can change this later.', onbSub3: 'Ask your teacher for the code.',
+    nameErr: 'Please enter your name', codeErr: 'That code does not look right', childErr: 'Please pick a child to continue', greatWork: 'Great work!',
+    quizIntro: 'questions · pass at 60%', masteredAt: 'Master it at 80%', noQuiz: 'Quiz coming soon',
+    xpToLevel: 'XP to Level', viewAll: 'View all', continueLearning: 'Pick up where you left off',
+    continueChapter: 'Continue your chapter', searchTools: 'Search tools', backStep: 'Back',
+    promptLibrary: 'Prompt Library', promptLibrarySub: 'Copy, paste, create — no prompt-writing skills needed',
+    buildPrompt: 'Build', browseExamples: 'Examples', toolDirectory: 'Tools',
+    chooseOutputType: 'What do you want to make?', fillDetails: 'Fill in the details',
+    fieldTopic: 'Topic', fieldClass: 'Class', fieldSubject: 'Subject', fieldChapter: 'Chapter name', fieldSlideCount: 'Number of slides',
+    yourPrompt: 'Your prompt', copyPromptBtn: 'Copy prompt', promptCopied: 'Prompt copied!',
+    recommendedTools: 'Recommended tools', fillToGenerate: 'Fill in the fields above to build your prompt',
+    promptLibrarySampleNote: 'Topic names here are illustrative — match them to the exact chapter titles in your current NCERT/GSEB edition before using in class.',
+    promptEnglishNote: 'Prompts are written in English — AI tools work reliably with English prompts regardless of your app language.',
+    threeSteps: '3 steps', step1: 'Pick what you want to make', step2: 'Fill in your topic', step3: 'Copy the prompt and paste it into the tool',
+    junior6to12Note: 'This library covers Class 6 and up. Here\'s a preview of what\'s waiting for you soon!',
+    allOutputTypes: 'All types', surpriseMe: 'Surprise me', toolCountOne: 'tool', navCurriculum: 'Chapters',
+    voyage: 'Your Voyage', voyageEyebrow: 'Mission log',
+    voyageSub: 'Every stop here is something you actually did.',
+    voyageStops: 'stops', voyageNow: 'You are here',
+    voyageEmpty: 'Your voyage has not started yet',
+    voyageEmptySub: 'Explore a tool, open a chapter or build a prompt \u2014 every milestone appears here as a new stop.',
+    voyageTap: 'Tap to launch', voyageTapSub: 'Watch your journey unfold, stop by stop.',
+    navPapers: 'Papers',
+    papers: 'Question Paper Setter', papersSub: 'Build the structure of a paper from your own chapters — you write the questions.',
+    papersNotice: 'This builds the section structure, marks distribution and a marking-scheme framework from your inputs, in your browser — it does not write exam questions for you. A connected AI backend could draft question text later; until then, each slot below is clearly marked for you to fill in.',
+    papersClassSubject: 'Class & subject', papersPick: 'pick one',
+    papersChapters: 'Chapters to cover', papersMarks: 'Total marks', papersDuration: 'Duration', papersHrs: 'hrs',
+    papersPattern: 'Section pattern', papersFour: '4 sections (A–D)', papersFive: '5 sections, with case study (A–E)',
+    papersDifficulty: 'Difficulty spread', papersEasy: 'Easy', papersMedium: 'Medium', papersHard: 'Hard',
+    papersGenerate: 'Generate paper', papersGenerated: 'Paper generated', papersNeedChapter: 'Pick at least one chapter first',
+    papersDocTitle: 'Question Paper', papersMaxMarks: 'Maximum marks',
+    papersRounded: 'Marks were rounded to a whole number of questions per section:',
+    papersInstructions: 'General instructions', papersInstr1: 'All questions are compulsory unless stated otherwise.',
+    papersInstr2: 'Marks for each question are indicated against it.', papersInstr3: 'Write answers in your own words as far as possible.',
+    papersSection: 'Section', papersFrom: 'from', papersMark: 'mark', papersMarks2: 'marks',
+    papersAnswerKey: 'Answer key', papersAnswerNote: 'Fill in the correct answer for each question once you have written it.',
+    papersCircle: 'circle the correct option',
+    papersMarking: 'Marking scheme', papersEachQ: 'each',
+    papersMarkMcq: 'Full marks for the correct option only; no partial marks.',
+    papersMarkShort: 'Full marks for a complete, correct response; award partial credit for a partially correct one per your own rubric.',
+    papersMarkLong: 'Break multi-part answers into steps and allocate marks per correct step or point, following your board\'s usual convention.',
+    papersPrepared: 'Prepared by', papersScaffoldBanner: 'STRUCTURE ONLY — question text is not generated. Do not distribute to students until every [from: …] slot has a real question written in.',
+    voyageReplay: 'Launch again',
+    voyageStart: 'Launch', voyageStart2: 'Launched', voyageOpen: 'Your voyage',
+    earnedOn: 'Earned', earnedLabel: 'Earned', lvShort: 'Lv',
+    resultsFor: 'results', resultFor: 'result',
+    libraryFooter: 'in your class', quizNailed: 'Nailed it!', quizSolid: 'Solid work', quizAlmost: 'Almost there', quizAgain: 'Worth another go',
+    scrollHint: 'Scroll sideways for more',
+    navPlanner: 'Planner', navLive: 'Live', navMagic: 'AI Tools', navUpskill: 'Training', navClass: 'My Class',
+    planner: 'Lesson Planner', plannerSub: 'Plan a week of AI-supported lessons, then print it',
+    planClass: 'Class', planWeek: 'Week beginning', planAddLesson: 'Add a lesson',
+    planEmptyDay: 'Free', planPickChapter: 'Pick a chapter', planPickPrompt: 'Pick an activity',
+    planNote: 'Note for yourself (optional)', planSave: 'Add to plan', planRemove: 'Clear',
+    planPrint: 'Print / Save as PDF', planEmpty: 'Nothing planned yet',
+    planEmptySub: 'Add a lesson to any day and it will appear here, ready to print for your file.',
+    planAdded: 'Added to your plan', planCleared: 'Day cleared',
+    mon: 'Monday', tue: 'Tuesday', wed: 'Wednesday', thu: 'Thursday', fri: 'Friday',
+    planPrintTitle: 'Weekly Lesson Plan', planPrepared: 'Prepared by',
+    starterPath: 'Your first week', starterSub: 'Five short steps to find your way around',
+    starterDoneLabel: 'Done', starterGo: 'Start', starterAllDone: 'You have found your feet!',
+    starterAllDoneSub: 'You have finished your first week. Everything is unlocked — go build something.',
+    creations: 'My Creations', navCreations: 'Creations', navPrompts: 'Prompts',
+    creationsSub: 'Everything you have made with AI tools',
+    addCreation: 'Add a creation', creationTitle: 'What did you make?',
+    creationTool: 'Which tool did you use?', creationLink: 'Link (optional)',
+    creationNote: 'A note about it (optional)', saveCreation: 'Save to portfolio',
+    creationSaved: 'Added to your portfolio!', noCreations: 'Nothing here yet',
+    noCreationsSub: 'Made something with an AI tool? Add it here and build your portfolio.',
+    openLink: 'Open', deleteCreation: 'Remove', confirmDelete: 'Remove this from your portfolio?',
+    creationNeedsTitle: 'Give it a title first',
+    linkLooksOff: 'That does not look like a web link — it should start with https://',
+    history: 'History', historySub: 'Prompts you built recently',
+    sandbox: 'Practice', sandboxNotice: 'This checks the shape of your prompt with a simple rule-based checklist — it is not a real AI, and does not simulate what any tool would say back.',
+    sandboxLabel: 'Type a prompt you are thinking of using', sandboxPh: 'e.g. Explain photosynthesis to me like I\'m 10, then quiz me on it',
+    sandboxCheck: 'Check my prompt',
+    voldyOpen: 'Ask Voldy for help', voldyHi: 'Hi, I\'m Voldy',
+    voldyIntro: 'I\'m a quick guide, not an AI — tap a question below.',
+    voldyBack: 'All questions', voldyTakeThere: 'Take me there',
+    noHistory: 'No prompts yet', noHistorySub: 'Prompts you build will show up here so you can reuse them.',
+    reuse: 'Use again', clearHistory: 'Clear history', historyCleared: 'History cleared',
+    search: 'Search', searchEverything: 'Search tools, chapters, prompts…',
+    noResults: 'Nothing found', noResultsSub: 'Try a different word.',
+    resTool: 'Tool', resChapter: 'Chapter', resPrompt: 'Prompt type',
+    searchHint: 'Search across AI tools, curriculum chapters and prompt templates.',
+    coverage: 'Coverage', coverageSub: 'Syllabus chapters covered vs target, per class',
+    reports: 'Reports', reportsSub: 'Printable summaries for board meetings and parents',
+    schoolReport: 'School Report', parentSummary: 'Parent Summaries',
+    printReport: 'Print / Save as PDF', backToReports: 'Reports',
+    onTrack: 'On track', behind: 'Behind', ahead: 'Ahead',
+    coverageHeatmap: 'Coverage Heatmap', coverageHeatmapSub: 'Every class and subject, at a glance.',
+    heatMiddle: 'Class 6–9', heatSenior: 'Class 11–12 · Science stream',
+    heatBackLink: 'Back to the class-by-class list',
+    coverageOverall: 'Overall coverage', chaptersCovered: 'chapters covered',
+    ofTarget: 'of target', needsAttention: 'Needs attention',
+    generatedOn: 'Generated on', preparedFor: 'Prepared for',
+    reportIntro: 'This report summarises AI-literacy programme activity across the school for the current term.',
+    keyHighlights: 'Key highlights', classBreakdown: 'Class breakdown', staffReadiness: 'Staff readiness',
+    pickStudent: 'Pick a student', parentReportFor: 'Progress summary for',
+    whatTheyDid: 'What they have been doing', strengthLabel: 'Doing well', growthLabel: 'Next step',
+    parentIntro: 'A short summary of how your child has been using the AI-literacy programme at school this term.',
+    sampleDataWarning: 'SAMPLE DATA — these figures are illustrative, not live student records. Do not circulate as real results.',
+    waSend: 'Send to a parent', waNumberLabel: 'Parent\'s WhatsApp number (optional)',
+    waNumberPh: 'e.g. 98765 43210', waNumberHint: 'Leave blank to pick a contact inside WhatsApp instead. Never saved by this app.',
+    waSendBtn: 'Open in WhatsApp',
+    daysStreak: 'day streak', toolsLearned: 'AI tools learned', chaptersWorked: 'chapters worked through',
+    badgesEarnedLabel: 'badges earned',
+    ncert: 'NCERT Library', ncertSub: 'Official books — links open ncert.nic.in',
+    live: 'Live Classroom', liveSub: 'Join your teacher live', admin: 'School Admin',
+    toolOfWeek: 'Tool of the week', parentReport: 'Parent report sent!',
+    joinLive: 'Join session', liveCode: 'Session code', startSession: 'Start session',
+    endSession: 'End session', liveQuestion: 'Live question', submitAnswer: 'Submit',
+    answered: 'Answer submitted!', waitingHost: 'Waiting for teacher…',
+    schoolStats: 'School overview', allClasses: 'All classes', topClass: 'Top class',
+    avgXp: 'Avg XP per student', sendReport: 'Send parent reports',
+    principal_r: 'Principal', principal: 'Principal',
+    onbParentWho: 'Which child are you tracking?', onbParentWhoSub: 'Pick your child to see their progress.',
+    parentHome: 'My Child', parentHomeSub: 'A live look at how they are doing at school.',
+    parentPreviewNote: 'You are seeing a preview built on a sample child. Once your school connects real student accounts, this page will show your own child\'s real progress.',
+    parentContact: 'Questions about this? Speak to your child\'s class teacher.',
+    navParentHome: 'My Child',
+    navFamily: 'Family', familyTitle: 'Family Learning', familySub: 'Things to do and know together.',
+    tryTogether: 'Try Together', tryTogetherSub: 'A five-minute AI activity for the two of you.',
+    miniBites: 'Quick Answers for Parents',
+    childCoverage: 'Syllabus coverage', childCoverageSub: 'Chapters covered against this term\'s target.',
+    childPortfolio: 'What they have made', noChildPortfolio: 'Nothing saved to the portfolio yet this term.',
+    journey: 'Journey', journeySub: 'Progress over the term, by class',
+    flags: 'Flags', flagsSub: 'Misuse alerts for review',
+    termTrend: 'Term XP trend', staffProgress: 'Staff upskilling',
+    staffProgressSub: 'Teacher AI-fluency progress, rolled up for the Principal',
+    upskillProgress: 'Progress', markReviewed: 'Mark reviewed', reviewed: 'Reviewed',
+    protoNoticeTitle: 'Prototype notice — read before using in a real pitch',
+    protoNoticeBody: 'This log is illustrative sample data. This static frontend has no connection to any AI tool\u2019s actual prompts or output, so nothing here is really being monitored yet. Real misuse detection needs a backend that sits between students and the AI tools they use.',
+    magicTools: 'Magic AI Tools', magicSub: 'Ready-made starting points for common teacher tasks',
+    magicNotice: 'These fill in a structured template from your inputs, in your browser — not a live AI generation. A connected AI backend can make these fully generative later.',
+    generate: 'Generate', copy: 'Copy', copyPrompt: 'Copy',
+    upskillTitle: 'Your Upskilling Track', upskillSub: 'Short modules to build your own AI fluency — earns XP, just like students',
+    modulesComplete: 'modules complete', aiFluentBadge: 'AI-Fluent Educator',
+    curriculum: 'Curriculum', curriculumSub: 'Chapter-linked AI prompts, tied to your own textbook',
+    selectBoard: 'Select your board', selectClass: 'Select your class', selectSubject: 'Select subject',
+    selectChapter: 'Select chapter', promptsFor: 'Prompts for', sampleContent: 'Sample content — full chapter list to be added',
+    backToBoards: 'Boards', backToClasses: 'Classes', backToSubjects: 'Subjects', backToChapters: 'Chapters',
+    officialBooks: 'Official textbooks', officialBooksSub: 'Links open the real book on ncert.nic.in',
+    whatToMake: 'What do you want to make today?', allTools: 'All tools', backToCategories: 'Categories',
+    toolCount: 'tools', practicingWithin: 'Practising within', usePrompt: 'Use this prompt',
+    guardrails: 'Guardrails Active', guardrailsShort: 'Guardrails', guardrailsSheetTitle: 'What Guardrails Active means',
+    guardrailsSheetBody: 'Every AI tool a student opens from this portal is tied to a chapter and topic — not a blank, open-ended chat box. Anything that looks off-topic is logged for the teacher and Principal to review.',
+    guardrailsHonesty: 'Prototype scope: this badge and the practice-context bar are a real, working design pattern. Actually reading or moderating what a student types into an external AI tool needs a backend proxy sitting between the student and that tool \u2014 out of scope for this static frontend. See the Flags view for the same note.',
+    gsebSampleNote: 'GSEB entries are sample content for the demo \u2014 chapter names need review by a fluent Gujarati-medium curriculum owner before publishing.',
+    readChapter: 'Read this chapter (official PDF)', backToPrompts: 'Back to prompts',
+    chapterPracticeXp: 'Chapter practice', tapCategory: 'Tap a category to see its tools',
+    cloudSync: 'Cloud sync', cloudSyncSub: 'Keep your progress if you change phone',
+    cloudOff: 'Saved on this device only.', cloudOn: 'Your progress is syncing.',
+    cloudSignIn: 'Sign in', cloudRegister: 'Create account', cloudSignOut: 'Sign out of account',
+    cloudEmail: 'Email', cloudPassword: 'Password', cloudNameLabel: 'Your name',
+    cloudWorking: 'Please wait…', cloudNeedFields: 'Enter your email and password',
+    cloudNeedName: 'Please enter your name',
+    cloudFailed: 'Could not sign in — check your email and password',
+    cloudTaken: 'That email is already registered — try signing in',
+    cloudOffline: 'No connection — try again when you are online',
+    cloudWelcome: 'Signed in — syncing your progress',
+    cloudSignedOutMsg: 'Signed out. Your progress stays on this device.',
+    cloudHaveAccount: 'I already have an account', cloudNoAccount: 'I need an account',
+    cloudTip: 'Tip: sign in from Profile to keep your progress safe.'
+  },
+  hi: {
+    home: 'होम', explore: 'खोजें', badges: 'बैज', board: 'कक्षा', profile: 'प्रोफ़ाइल', teacher: 'शिक्षक',
+    welcome: 'वापसी पर स्वागत,', dayStreak: 'दिन की लय', inClass: 'कक्षा में', badgesEarned: 'बैज', toolsTried: 'टूल',
+    bestStreak: 'सर्वश्रेष्ठ', todayMission: 'आज का मिशन', challengeOfDay: 'आज की चुनौती', complete: 'पूरा करें',
+    done: 'पूर्ण', roadmap: 'आपका रास्ता', roadmapSub: 'क्विज़ पूरा कर टूल में महारत पाएँ', keepGoing: 'आगे बढ़ें',
+    startQuiz: 'क्विज़ शुरू करें', tryPrompt: 'यह प्रॉम्प्ट आज़माएँ', copied: 'प्रॉम्प्ट कॉपी हुआ', open: 'टूल खोलें',
+    question: 'प्रश्न', next: 'अगला प्रश्न', seeResults: 'परिणाम देखें', retry: 'फिर कोशिश करें', backToPath: 'रास्ते पर लौटें',
+    correct: 'सही', yourScore: 'आपका स्कोर', mastered: 'महारत', explored: 'देखा', locked: 'शुरू नहीं',
+    classBoard: 'कक्षा लीडरबोर्ड', boardSub: 'सिर्फ़ आपकी कक्षा — पूरा प्लेटफ़ॉर्म नहीं', allTime: 'कुल', thisWeek: 'इस सप्ताह',
+    settings: 'सेटिंग्स', darkMode: 'डार्क मोड', sound: 'ध्वनि', language: 'भाषा / Language',
+    installApp: 'ऐप इंस्टॉल करें', install: 'इंस्टॉल करें', appInstalled: 'इंस्टॉल हो गया',
+    installIOSHint: 'iPhone या iPad पर: Share बटन दबाएँ, फिर "Add to Home Screen" चुनें।',
+    voiceInput: 'टाइप करने के बजाय बोलें', voiceError: 'सुन नहीं पाया — फिर कोशिश करें',
+    readAloud: 'ज़ोर से पढ़ें',
+    certificate: 'आपका प्रमाणपत्र', certSub: 'डाउनलोड करें और स्कूल में साझा करें', download: 'प्रमाणपत्र डाउनलोड करें',
+    signOut: 'फिर से शुरू करें', joinClass: 'कक्षा से जुड़ें', classCode: 'क्लास कोड', join: 'जुड़ें',
+    demoNote: 'नमूना डेटा वाला प्रोटोटाइप — वास्तविक आँकड़े नहीं।',
+    students: 'विद्यार्थी', avgLevel: 'औसत स्तर', activeToday: 'आज सक्रिय', assign: 'मिशन दें',
+    classCodeLabel: 'आपका क्लास कोड', shareCode: 'विद्यार्थी इसे डालकर जुड़ते हैं', copyCode: 'कोड कॉपी करें', codeCopied: 'कोड कॉपी हुआ',
+    student: 'विद्यार्थी', level: 'स्तर', streak: 'लय', lastSeen: 'अंतिम सक्रिय', progress: 'प्रगति',
+    whoAreYou: 'आप कौन हैं?', pickAvatar: 'अपना साथी चुनें', whatsYourName: 'आपका नाम क्या है?',
+    student_r: 'विद्यार्थी', teacher_r: 'शिक्षक', parent_r: 'अभिभावक', continue: 'आगे बढ़ें', skip: 'अभी छोड़ें',
+    onbSub1: 'इससे आगे का पेज बदलता है।', onbSub2: 'बाद में बदल सकते हैं।', onbSub3: 'शिक्षक से कोड माँगें।',
+    nameErr: 'कृपया नाम लिखें', codeErr: 'यह कोड सही नहीं लगता', childErr: 'जारी रखने के लिए एक बच्चा चुनें', greatWork: 'शाबाश!',
+    quizIntro: 'प्रश्न · 60% पर पास', masteredAt: '80% पर महारत', noQuiz: 'क्विज़ जल्द आ रहा है',
+    xpToLevel: 'XP शेष, स्तर', viewAll: 'सब देखें', continueLearning: 'जहाँ छोड़ा था वहीं से',
+    continueChapter: 'अपना अध्याय जारी रखें', searchTools: 'टूल खोजें', backStep: 'वापस',
+    promptLibrary: 'प्रॉम्प्ट लाइब्रेरी', promptLibrarySub: 'कॉपी करें, पेस्ट करें, बनाएँ — प्रॉम्प्ट लिखना नहीं आना चाहिए',
+    buildPrompt: 'बनाएँ', browseExamples: 'उदाहरण', toolDirectory: 'टूल',
+    chooseOutputType: 'आप क्या बनाना चाहते हैं?', fillDetails: 'विवरण भरें',
+    fieldTopic: 'विषय', fieldClass: 'कक्षा', fieldSubject: 'विषय (सब्जेक्ट)', fieldChapter: 'अध्याय का नाम', fieldSlideCount: 'स्लाइड की संख्या',
+    yourPrompt: 'आपका प्रॉम्प्ट', copyPromptBtn: 'प्रॉम्प्ट कॉपी करें', promptCopied: 'प्रॉम्प्ट कॉपी हुआ!',
+    recommendedTools: 'अनुशंसित टूल', fillToGenerate: 'प्रॉम्प्ट बनाने के लिए ऊपर विवरण भरें',
+    promptLibrarySampleNote: 'यहाँ विषय के नाम उदाहरण मात्र हैं — कक्षा में उपयोग से पहले अपने वर्तमान NCERT/GSEB संस्करण के सटीक अध्याय शीर्षकों से मिलाएँ।',
+    promptEnglishNote: 'प्रॉम्प्ट अंग्रेज़ी में लिखे गए हैं — एआई टूल अंग्रेज़ी प्रॉम्प्ट के साथ भरोसेमंद तरीक़े से काम करते हैं।',
+    threeSteps: '3 चरण', step1: 'क्या बनाना है चुनें', step2: 'अपना विषय भरें', step3: 'प्रॉम्प्ट कॉपी करें और टूल में पेस्ट करें',
+    junior6to12Note: 'यह लाइब्रेरी कक्षा 6 और उससे ऊपर के लिए है। जल्द ही आपके लिए क्या आ रहा है, इसकी झलक यहाँ है!',
+    allOutputTypes: 'सभी प्रकार', surpriseMe: 'अचरज दिखाओ', toolCountOne: 'टूल', navCurriculum: 'अध्याय',
+    voyage: 'आपकी यात्रा', voyageEyebrow: 'मिशन लॉग',
+    voyageSub: 'यहाँ हर पड़ाव वह है जो आपने सचमुच किया।',
+    voyageStops: 'पड़ाव', voyageNow: 'आप यहाँ हैं',
+    voyageEmpty: 'आपकी यात्रा अभी शुरू नहीं हुई',
+    voyageEmptySub: 'कोई टूल खोजें, अध्याय खोलें या प्रॉम्प्ट बनाएँ — हर उपलब्धि यहाँ नए पड़ाव के रूप में दिखेगी।',
+    voyageTap: 'उड़ान भरने के लिए दबाएँ', voyageTapSub: 'अपनी यात्रा एक-एक पड़ाव करके देखें।',
+    navPapers: 'प्रश्न-पत्र',
+    papers: 'प्रश्न-पत्र निर्माता', papersSub: 'अपने ही अध्यायों से प्रश्न-पत्र की संरचना बनाएँ — प्रश्न आप लिखें।',
+    papersNotice: 'यह आपके इनपुट से सेक्शन संरचना, अंक-विभाजन और मार्किंग-स्कीम ढाँचा आपके ब्राउज़र में ही बनाता है — यह परीक्षा प्रश्न स्वयं नहीं लिखता। जुड़ा एआई बैकएंड बाद में प्रश्न लिख सकता है; तब तक हर स्थान स्पष्ट रूप से भरने के लिए चिह्नित है।',
+    papersClassSubject: 'कक्षा और विषय', papersPick: 'एक चुनें',
+    papersChapters: 'शामिल अध्याय', papersMarks: 'कुल अंक', papersDuration: 'अवधि', papersHrs: 'घंटे',
+    papersPattern: 'सेक्शन पैटर्न', papersFour: '4 सेक्शन (A–D)', papersFive: 'केस स्टडी सहित 5 सेक्शन (A–E)',
+    papersDifficulty: 'कठिनाई विभाजन', papersEasy: 'सरल', papersMedium: 'मध्यम', papersHard: 'कठिन',
+    papersGenerate: 'प्रश्न-पत्र बनाएँ', papersGenerated: 'प्रश्न-पत्र तैयार', papersNeedChapter: 'पहले कम से कम एक अध्याय चुनें',
+    papersDocTitle: 'प्रश्न-पत्र', papersMaxMarks: 'अधिकतम अंक',
+    papersRounded: 'प्रति सेक्शन पूर्ण प्रश्न-संख्या हेतु अंक पूर्णांकित किए गए:',
+    papersInstructions: 'सामान्य निर्देश', papersInstr1: 'जब तक अन्यथा न कहा जाए, सभी प्रश्न अनिवार्य हैं।',
+    papersInstr2: 'प्रत्येक प्रश्न के सामने अंक दर्शाए गए हैं।', papersInstr3: 'यथासंभव अपने शब्दों में उत्तर लिखें।',
+    papersSection: 'सेक्शन', papersFrom: 'से', papersMark: 'अंक', papersMarks2: 'अंक',
+    papersAnswerKey: 'उत्तर कुंजी', papersAnswerNote: 'प्रश्न लिखने के बाद हर एक का सही उत्तर भरें।',
+    papersCircle: 'सही विकल्प पर घेरा लगाएँ',
+    papersMarking: 'मार्किंग स्कीम', papersEachQ: 'प्रत्येक',
+    papersMarkMcq: 'केवल सही विकल्प पर पूर्ण अंक; आंशिक अंक नहीं।',
+    papersMarkShort: 'पूर्ण सही उत्तर पर पूर्ण अंक; आंशिक सही उत्तर पर अपनी रूब्रिक अनुसार आंशिक अंक दें।',
+    papersMarkLong: 'बहु-भाग उत्तर को चरणों में बाँटें और अपने बोर्ड की सामान्य प्रथा अनुसार हर सही चरण/बिंदु पर अंक दें।',
+    papersPrepared: 'तैयारकर्ता', papersScaffoldBanner: 'केवल संरचना — प्रश्न पाठ स्वतः नहीं बना। जब तक हर [से: …] स्थान में वास्तविक प्रश्न न लिखा जाए, विद्यार्थियों को न बाँटें।',
+    voyageReplay: 'फिर से उड़ान',
+    voyageStart: 'उड़ान भरें', voyageStart2: 'शुरुआत', voyageOpen: 'आपकी यात्रा',
+    earnedOn: 'मिला', earnedLabel: 'अर्जित', lvShort: 'स्तर',
+    resultsFor: 'परिणाम', resultFor: 'परिणाम',
+    libraryFooter: 'आपकी कक्षा में', quizNailed: 'शानदार!', quizSolid: 'अच्छा काम', quizAlmost: 'लगभग हो गया', quizAgain: 'एक बार और कोशिश करें',
+    scrollHint: 'और देखने के लिए बग़ल में स्क्रॉल करें',
+    navPlanner: 'योजना', navLive: 'लाइव', navMagic: 'एआई टूल', navUpskill: 'प्रशिक्षण', navClass: 'मेरी कक्षा',
+    planner: 'पाठ योजनाकार', plannerSub: 'एक सप्ताह की एआई-सहित पाठ योजना बनाएँ, फिर प्रिंट करें',
+    planClass: 'कक्षा', planWeek: 'सप्ताह प्रारंभ', planAddLesson: 'पाठ जोड़ें',
+    planEmptyDay: 'खाली', planPickChapter: 'अध्याय चुनें', planPickPrompt: 'गतिविधि चुनें',
+    planNote: 'अपने लिए टिप्पणी (वैकल्पिक)', planSave: 'योजना में जोड़ें', planRemove: 'हटाएँ',
+    planPrint: 'प्रिंट करें / PDF सहेजें', planEmpty: 'अभी कोई योजना नहीं',
+    planEmptySub: 'किसी भी दिन पाठ जोड़ें — वह यहाँ दिखेगा, फ़ाइल के लिए प्रिंट करने को तैयार।',
+    planAdded: 'योजना में जुड़ गया', planCleared: 'दिन खाली किया',
+    mon: 'सोमवार', tue: 'मंगलवार', wed: 'बुधवार', thu: 'गुरुवार', fri: 'शुक्रवार',
+    planPrintTitle: 'साप्ताहिक पाठ योजना', planPrepared: 'तैयारकर्ता',
+    starterPath: 'आपका पहला सप्ताह', starterSub: 'रास्ता जानने के लिए पाँच छोटे चरण',
+    starterDoneLabel: 'पूर्ण', starterGo: 'शुरू करें', starterAllDone: 'आपको रास्ता मिल गया!',
+    starterAllDoneSub: 'आपका पहला सप्ताह पूरा हुआ। अब सब कुछ खुला है — कुछ बनाइए।',
+    creations: 'मेरी रचनाएँ', navCreations: 'रचनाएँ', navPrompts: 'प्रॉम्प्ट',
+    creationsSub: 'एआई टूल से आपने जो कुछ बनाया',
+    addCreation: 'रचना जोड़ें', creationTitle: 'आपने क्या बनाया?',
+    creationTool: 'कौन-सा टूल इस्तेमाल किया?', creationLink: 'लिंक (वैकल्पिक)',
+    creationNote: 'इसके बारे में टिप्पणी (वैकल्पिक)', saveCreation: 'पोर्टफ़ोलियो में सहेजें',
+    creationSaved: 'पोर्टफ़ोलियो में जुड़ गया!', noCreations: 'अभी कुछ नहीं',
+    noCreationsSub: 'एआई टूल से कुछ बनाया? यहाँ जोड़ें और अपना पोर्टफ़ोलियो बनाएँ।',
+    openLink: 'खोलें', deleteCreation: 'हटाएँ', confirmDelete: 'इसे पोर्टफ़ोलियो से हटाएँ?',
+    creationNeedsTitle: 'पहले शीर्षक दें',
+    linkLooksOff: 'यह वेब लिंक नहीं लगता — यह https:// से शुरू होना चाहिए',
+    history: 'इतिहास', historySub: 'हाल में बनाए गए प्रॉम्प्ट',
+    sandbox: 'अभ्यास', sandboxNotice: 'यह आपके प्रॉम्प्ट की बनावट को एक सरल नियम-आधारित सूची से जाँचता है — यह असली एआई नहीं है, और यह नहीं दिखाता कि कोई टूल असल में क्या जवाब देगा।',
+    sandboxLabel: 'वह प्रॉम्प्ट लिखें जिसे आप उपयोग करने की सोच रहे हैं', sandboxPh: 'जैसे: मुझे प्रकाश-संश्लेषण ऐसे समझाओ जैसे मैं 10 साल का हूँ, फिर मुझसे क्विज़ लो',
+    sandboxCheck: 'मेरा प्रॉम्प्ट जाँचें',
+    voldyOpen: 'वोल्डी से मदद माँगें', voldyHi: 'नमस्ते, मैं वोल्डी हूँ',
+    voldyIntro: 'मैं एक त्वरित गाइड हूँ, एआई नहीं — नीचे कोई सवाल दबाएँ।',
+    voldyBack: 'सभी सवाल', voldyTakeThere: 'मुझे वहाँ ले चलें',
+    noHistory: 'अभी कोई प्रॉम्प्ट नहीं', noHistorySub: 'आपके बनाए प्रॉम्प्ट यहाँ दिखेंगे ताकि दोबारा उपयोग कर सकें।',
+    reuse: 'दोबारा उपयोग करें', clearHistory: 'इतिहास मिटाएँ', historyCleared: 'इतिहास मिट गया',
+    search: 'खोजें', searchEverything: 'टूल, अध्याय, प्रॉम्प्ट खोजें…',
+    noResults: 'कुछ नहीं मिला', noResultsSub: 'कोई दूसरा शब्द आज़माएँ।',
+    resTool: 'टूल', resChapter: 'अध्याय', resPrompt: 'प्रॉम्प्ट प्रकार',
+    searchHint: 'एआई टूल, पाठ्यक्रम अध्याय और प्रॉम्प्ट टेम्पलेट में खोजें।',
+    coverage: 'पाठ्यक्रम कवरेज', coverageSub: 'प्रति कक्षा — लक्ष्य बनाम पूर्ण अध्याय',
+    reports: 'रिपोर्ट', reportsSub: 'बोर्ड बैठक और अभिभावकों के लिए प्रिंट-योग्य सारांश',
+    schoolReport: 'विद्यालय रिपोर्ट', parentSummary: 'अभिभावक सारांश',
+    printReport: 'प्रिंट करें / PDF सहेजें', backToReports: 'रिपोर्ट',
+    onTrack: 'ठीक चल रहा', behind: 'पीछे', ahead: 'आगे',
+    coverageHeatmap: 'कवरेज हीटमैप', coverageHeatmapSub: 'हर कक्षा और विषय, एक नज़र में।',
+    heatMiddle: 'कक्षा 6–9', heatSenior: 'कक्षा 11–12 · विज्ञान स्ट्रीम',
+    heatBackLink: 'कक्षावार सूची पर वापस जाएँ',
+    coverageOverall: 'कुल कवरेज', chaptersCovered: 'अध्याय पूर्ण',
+    ofTarget: 'लक्ष्य में से', needsAttention: 'ध्यान चाहिए',
+    generatedOn: 'तैयार किया गया', preparedFor: 'के लिए तैयार',
+    reportIntro: 'यह रिपोर्ट इस सत्र में विद्यालय भर में एआई-साक्षरता कार्यक्रम की गतिविधि का सारांश देती है।',
+    keyHighlights: 'मुख्य बिंदु', classBreakdown: 'कक्षावार विवरण', staffReadiness: 'शिक्षक तैयारी',
+    pickStudent: 'विद्यार्थी चुनें', parentReportFor: 'प्रगति सारांश —',
+    whatTheyDid: 'अब तक की गतिविधि', strengthLabel: 'अच्छा कर रहे हैं', growthLabel: 'अगला कदम',
+    parentIntro: 'इस सत्र में आपके बच्चे ने विद्यालय के एआई-साक्षरता कार्यक्रम का उपयोग कैसे किया, इसका संक्षिप्त सारांश।',
+    sampleDataWarning: 'नमूना डेटा — ये आँकड़े केवल उदाहरण हैं, वास्तविक विद्यार्थी रिकॉर्ड नहीं। वास्तविक परिणाम के रूप में साझा न करें।',
+    waSend: 'अभिभावक को भेजें', waNumberLabel: 'अभिभावक का WhatsApp नंबर (वैकल्पिक)',
+    waNumberPh: 'जैसे: 98765 43210', waNumberHint: 'खाली छोड़ें तो WhatsApp में ही संपर्क चुन सकते हैं। यह ऐप इसे कभी सहेजता नहीं।',
+    waSendBtn: 'WhatsApp में खोलें',
+    daysStreak: 'दिन की लय', toolsLearned: 'एआई टूल सीखे', chaptersWorked: 'अध्याय पूर्ण किए',
+    badgesEarnedLabel: 'बैज अर्जित',
+    ncert: 'NCERT लाइब्रेरी', ncertSub: 'आधिकारिक पुस्तकें — ncert.nic.in खुलता है',
+    live: 'लाइव कक्षा', liveSub: 'शिक्षक के साथ लाइव जुड़ें', admin: 'स्कूल एडमिन',
+    toolOfWeek: 'इस सप्ताह का टूल', parentReport: 'अभिभावक रिपोर्ट भेजी!',
+    joinLive: 'सत्र में जुड़ें', liveCode: 'सत्र कोड', startSession: 'सत्र शुरू करें',
+    endSession: 'सत्र समाप्त करें', liveQuestion: 'लाइव प्रश्न', submitAnswer: 'जमा करें',
+    answered: 'उत्तर जमा हुआ!', waitingHost: 'शिक्षक की प्रतीक्षा करें…',
+    schoolStats: 'स्कूल सारांश', allClasses: 'सभी कक्षाएँ', topClass: 'शीर्ष कक्षा',
+    avgXp: 'औसत XP प्रति छात्र', sendReport: 'अभिभावक रिपोर्ट भेजें',
+    principal_r: 'प्रिंसिपल', principal: 'प्रिंसिपल',
+    onbParentWho: 'आप किस बच्चे की प्रगति देख रहे हैं?', onbParentWhoSub: 'प्रगति देखने के लिए अपना बच्चा चुनें।',
+    parentHome: 'मेरा बच्चा', parentHomeSub: 'स्कूल में उनकी प्रगति की सीधी झलक।',
+    parentPreviewNote: 'आप एक नमूना बच्चे पर आधारित पूर्वावलोकन देख रहे हैं। आपके स्कूल के असली खाते जुड़ने पर यहाँ आपके अपने बच्चे की असली प्रगति दिखेगी।',
+    parentContact: 'कोई सवाल? अपने बच्चे के कक्षा शिक्षक से बात करें।',
+    navParentHome: 'मेरा बच्चा',
+    navFamily: 'परिवार', familyTitle: 'पारिवारिक सीख', familySub: 'साथ करने और जानने की बातें।',
+    tryTogether: 'साथ आज़माएँ', tryTogetherSub: 'आप दोनों के लिए पाँच मिनट की एआई गतिविधि।',
+    miniBites: 'अभिभावकों के लिए त्वरित जवाब',
+    childCoverage: 'पाठ्यक्रम कवरेज', childCoverageSub: 'इस सत्र के लक्ष्य के मुक़ाबले पूरे हुए अध्याय।',
+    childPortfolio: 'उन्होंने क्या बनाया', noChildPortfolio: 'इस सत्र में अभी पोर्टफ़ोलियो में कुछ सहेजा नहीं गया।',
+    journey: 'यात्रा', journeySub: 'कक्षा अनुसार पूरे सत्र की प्रगति',
+    flags: 'फ़्लैग', flagsSub: 'समीक्षा हेतु दुरुपयोग चेतावनियाँ',
+    termTrend: 'सत्र XP रुझान', staffProgress: 'स्टाफ़ अपस्किलिंग',
+    staffProgressSub: 'शिक्षक एआई-दक्षता प्रगति, प्रिंसिपल के लिए सारांशित',
+    upskillProgress: 'प्रगति', markReviewed: 'समीक्षित करें', reviewed: 'समीक्षित',
+    protoNoticeTitle: 'प्रोटोटाइप सूचना — असली पिच में उपयोग से पहले पढ़ें',
+    protoNoticeBody: 'यह सूची उदाहरण डेटा है। इस स्थैतिक फ़्रंटएंड का किसी भी एआई टूल के वास्तविक प्रॉम्प्ट या आउटपुट से कोई संबंध नहीं है, इसलिए यहाँ अभी कुछ भी वास्तव में निगरानी में नहीं है। असली दुरुपयोग पहचान के लिए बैकएंड चाहिए जो विद्यार्थियों और एआई टूल के बीच बैठे।',
+    magicTools: 'मैजिक एआई टूल्स', magicSub: 'सामान्य शिक्षक कार्यों के लिए तैयार शुरुआती बिंदु',
+    magicNotice: 'ये आपके इनपुट से एक संरचित टेम्पलेट भरते हैं, आपके ब्राउज़र में ही — यह लाइव एआई जनरेशन नहीं है। जुड़ा हुआ एआई बैकएंड बाद में इन्हें पूरी तरह जनरेटिव बना सकता है।',
+    generate: 'बनाएँ', copy: 'कॉपी करें', copyPrompt: 'कॉपी करें',
+    upskillTitle: 'आपका अपस्किलिंग ट्रैक', upskillSub: 'अपनी एआई दक्षता बनाने के छोटे मॉड्यूल — विद्यार्थियों की तरह XP मिलता है',
+    modulesComplete: 'मॉड्यूल पूर्ण', aiFluentBadge: 'एआई-दक्ष शिक्षक',
+    curriculum: 'पाठ्यक्रम', curriculumSub: 'आपकी अपनी किताब से जुड़े अध्याय-आधारित एआई प्रॉम्प्ट',
+    selectBoard: 'अपना बोर्ड चुनें', selectClass: 'अपनी कक्षा चुनें', selectSubject: 'विषय चुनें',
+    selectChapter: 'अध्याय चुनें', promptsFor: 'के लिए प्रॉम्प्ट', sampleContent: 'नमूना सामग्री — पूरी अध्याय सूची जोड़ी जानी बाकी',
+    backToBoards: 'बोर्ड', backToClasses: 'कक्षाएँ', backToSubjects: 'विषय', backToChapters: 'अध्याय',
+    officialBooks: 'आधिकारिक पाठ्यपुस्तकें', officialBooksSub: 'लिंक असली किताब ncert.nic.in पर खोलते हैं',
+    whatToMake: 'आज क्या बनाना चाहते हैं?', allTools: 'सभी टूल', backToCategories: 'श्रेणियाँ',
+    toolCount: 'टूल', practicingWithin: 'अभ्यास कर रहे हैं', usePrompt: 'यह प्रॉम्प्ट उपयोग करें',
+    guardrails: 'गार्डरेल सक्रिय', guardrailsShort: 'गार्डरेल', guardrailsSheetTitle: '"गार्डरेल सक्रिय" का अर्थ',
+    guardrailsSheetBody: 'इस पोर्टल से खोला गया हर एआई टूल एक अध्याय और विषय से जुड़ा होता है — खाली, खुला चैट बॉक्स नहीं। जो कुछ भी विषय से हटकर लगे, वह शिक्षक और प्रिंसिपल की समीक्षा के लिए दर्ज होता है।',
+    guardrailsHonesty: 'प्रोटोटाइप सीमा: यह बैज और अभ्यास-संदर्भ पट्टी एक वास्तविक, कार्यशील डिज़ाइन पैटर्न है। विद्यार्थी बाहरी एआई टूल में जो टाइप करता है उसे वास्तव में पढ़ना या नियंत्रित करना — इसके लिए एक बैकएंड चाहिए जो विद्यार्थी और उस टूल के बीच बैठे — यह इस स्थैतिक फ़्रंटएंड के दायरे से बाहर है। यही टिप्पणी फ़्लैग दृश्य में भी है।',
+    gsebSampleNote: 'GSEB प्रविष्टियाँ डेमो के लिए नमूना सामग्री हैं — प्रकाशन से पहले अध्याय नामों की समीक्षा किसी दक्ष गुजराती-माध्यम पाठ्यक्रम विशेषज्ञ से करानी होगी।',
+    readChapter: 'यह अध्याय पढ़ें (आधिकारिक PDF)', backToPrompts: 'प्रॉम्प्ट पर वापस जाएँ',
+    chapterPracticeXp: 'अध्याय अभ्यास', tapCategory: 'टूल देखने के लिए श्रेणी पर टैप करें',
+    cloudSync: 'क्लाउड सिंक', cloudSyncSub: 'फ़ोन बदलने पर भी आपकी प्रगति सुरक्षित रहे',
+    cloudOff: 'अभी सिर्फ़ इसी डिवाइस पर सहेजा गया है।', cloudOn: 'आपकी प्रगति सिंक हो रही है।',
+    cloudSignIn: 'साइन इन करें', cloudRegister: 'खाता बनाएँ', cloudSignOut: 'खाते से साइन आउट करें',
+    cloudEmail: 'ईमेल', cloudPassword: 'पासवर्ड', cloudNameLabel: 'आपका नाम',
+    cloudWorking: 'कृपया प्रतीक्षा करें…', cloudNeedFields: 'ईमेल और पासवर्ड भरें',
+    cloudNeedName: 'कृपया अपना नाम भरें',
+    cloudFailed: 'साइन इन नहीं हो सका — ईमेल और पासवर्ड जाँचें',
+    cloudTaken: 'यह ईमेल पहले से पंजीकृत है — साइन इन करके देखें',
+    cloudOffline: 'कनेक्शन नहीं है — ऑनलाइन होने पर फिर कोशिश करें',
+    cloudWelcome: 'साइन इन हो गया — प्रगति सिंक हो रही है',
+    cloudSignedOutMsg: 'साइन आउट हो गया। आपकी प्रगति इस डिवाइस पर सुरक्षित है।',
+    cloudHaveAccount: 'मेरा खाता पहले से है', cloudNoAccount: 'मुझे खाता बनाना है',
+    cloudTip: 'सुझाव: प्रोफ़ाइल से साइन इन करें ताकि प्रगति सुरक्षित रहे।'
+  }
+};
+
+/* ------------------------------------------------------------------- state */
+
+const DEFAULTS = {
+  onboarded: false, role: 'student', name: '', avatar: 'fox', // role: 'student' | 'teacher' | 'principal' | 'parent'
+  classGroup: 'middle', // 'junior' | 'middle' | 'senior'
+  // Which sample student a parent picked at onboarding — the app has no real
+  // accounts yet, so this can only point at SAMPLE_STUDENTS, never a real
+  // child. See the long comment above viewParentHome() for why.
+  parentChild: '',
+  questDoneOn: '',
+  xp: 0, streak: 1, best: 1, quests: 0,
+  toolsSeen: [], toolScores: {}, badges: [], classCode: '', cat: null,
+  locale: 'en', dark: false, sound: true, week: [1, 1, 1, 1, 1, 1, 0],
+  // Curriculum-library selector (Section 3) — transient picker state
+  curBoard: '', curClass: '', curSubject: '', curChapter: '', chaptersUsed: [],
+  lastChapter: null, // { board, cls, subject, chapterSlug, title } — for the Home "continue" card
+  // Teacher upskilling track (Section 6)
+  teacherModulesDone: [],
+  // AI Prompt Library — which output-type templates a student has generated
+  // + copied at least once (drives the two badges above)
+  promptTemplatesUsed: [],
+  // My Creations — student portfolio. Each: { id, title, tool, link, note, ts }
+  creations: [],
+  // Prompt History — last N generated prompts. Each: { id, tplKey, text, topic, ts }
+  promptHistory: [],
+  // Weekly lesson planner (teacher). Keyed by weekday index 0-4 (Mon-Fri);
+  // each slot: { chapterTitle, subject, cls, tplKey, note }
+  lessonPlan: {},
+  planMeta: { cls: '', week: '' },
+  // Starter Path (student) — which of the first-week steps are done
+  starterDone: [],
+  // Question Paper Setter (teacher). chapterIds: real curriculum chapters
+  // selected for this paper; the rest is the blueprint the teacher controls.
+  paperSetup: { cls: '', subject: '', chapterIds: [], marks: '80', duration: '3', pattern: 'four', easy: '40', medium: '35', hard: '25' },
+  badgeDates: {}, // badge key -> timestamp earned
+  // Voyage — an ordered log of real milestones. Without this a journey view
+  // could only guess at what happened when: tools, quizzes and chapters were
+  // stored as flat lists with no time attached, so a timeline built from
+  // them would be invented order presented as history.
+  timeline: [],
+  // Draft text in the Prompt Sandbox — kept so switching tabs and coming
+  // back doesn't discard what a student typed, but never contributes to XP
+  // or the timeline: checking a draft prompt isn't a completed milestone.
+  sandboxDraft: ''
+};
+
+/* Keeping the stored history short on purpose: this lives in localStorage,
+   which is a small, shared, synchronous budget for the whole app. An
+   unbounded log would slowly push out the student's actual progress data,
+   which matters far more than an old prompt. */
+const PROMPT_HISTORY_MAX = 15;
+
+/* ------------------------------------------------- class group config */
+const CLASS_GROUPS = {
+  junior: {
+    label: { en: 'Nursery – Class 5', hi: 'नर्सरी – कक्षा 5' },
+    emoji: '🌈', accentCSS: '#ff6b35', voldy: '🤖',
+    greeting: { en: 'Hi there! Ready to play? 😀', hi: 'नमस्ते! खेलने के लिए तैयार? 😀' },
+    toolSlugs: ['canva-ai', 'suno', 'chatgpt-junior', 'gemini-junior', 'khanmigo', 'scratch-ai', 'teachable-machine', 'rosebud-ai'],
+    questPool: [
+      { t: { en: 'Draw a rainbow with Canva AI!', hi: 'कैनवा एआई से इंद्रधनुष बनाओ!' }, d: { en: 'Ask it to draw something colourful and share what you made.', hi: 'रंगीन कुछ बनाने को कहो और दिखाओ।' } },
+      { t: { en: 'Ask AI to tell you a story!', hi: 'एआई से कहानी सुनाओ!' }, d: { en: 'Ask for a story about a talking animal. Read it aloud!', hi: 'बात करने वाले जानवर की कहानी माँगो। ज़ोर से पढ़ो!' } },
+      { t: { en: 'Make music with Suno!', hi: 'सुनो से संगीत बनाओ!' }, d: { en: 'Ask Suno to make a happy song about your school.', hi: 'सुनो से अपने स्कूल के बारे में खुशनुमा गाना बनवाओ।' } }
+    ],
+    titles: [[1, 'Little Explorer', 'नन्हा खोजी'], [3, 'Star Learner', 'सितारा सीखने वाला'], [6, 'AI Friend', 'एआई दोस्त'], [10, 'Super Kid', 'सुपर बच्चा'], [15, 'Champion', 'चैंपियन']]
+  },
+  middle: {
+    label: { en: 'Class 6 – 9', hi: 'कक्षा 6 – 9' },
+    emoji: '📚', accentCSS: '#7c3aed', voldy: '🤖',
+    greeting: { en: 'Welcome back,', hi: 'वापसी पर स्वागत,' },
+    toolSlugs: ['chatgpt', 'claude', 'gemini', 'canva-ai', 'notebooklm', 'perplexity', 'suno', 'runway', 'khanmigo', 'scratch-ai', 'teachable-machine', 'adobe-express', 'quizlet-ai', 'gdevelop-ai', 'replit-ai'],
+    questPool: null, titles: null
+  },
+  senior: {
+    label: { en: 'Class 10 – 12', hi: 'कक्षा 10 – 12' },
+    emoji: '🎓', accentCSS: '#0284c7', voldy: '💡',
+    greeting: { en: 'Good to see you,', hi: 'आपसे मिलकर अच्छा लगा,' },
+    toolSlugs: ['chatgpt', 'claude', 'gemini', 'perplexity', 'copilot', 'notebooklm', 'canva-ai', 'notion-ai', 'runway', 'bolt-new', 'lovable', 'replit-ai', 'capcut-ai', 'v0-vercel', 'cursor-ai', 'wolfram-alpha', 'elicit-ai', 'midjourney', 'gdevelop-ai', 'wekinator'],
+    questPool: [
+      { t: { en: 'Write your college intro with AI', hi: 'एआई से कॉलेज परिचय लिखें' }, d: { en: 'Draft a 100-word "About Me" for college applications. Ask AI to improve it twice.', hi: '100 शब्दों का परिचय बनाएँ, एआई से दो बार सुधरवाएँ।' } },
+      { t: { en: 'Fact-check a news headline', hi: 'खबर जाँचें' }, d: { en: 'Pick any headline. Ask Perplexity to verify it. Note what it gets right and wrong.', hi: 'कोई भी खबर चुनें। जाँचें कि क्या सही है, क्या गलत।' } },
+      { t: { en: 'Build a study plan with AI', hi: 'एआई से पढ़ाई का प्लान बनाएँ' }, d: { en: 'Upload your syllabus. Ask for a 30-day board exam revision plan.', hi: 'सिलेबस अपलोड करें। 30 दिन की रिवीज़न योजना माँगें।' } }
+    ],
+    titles: [[1, 'AI Aware', 'एआई-जागरूक'], [5, 'Prompt Writer', 'प्रॉम्प्ट लेखक'], [10, 'Critical Thinker', 'विश्लेषक'], [15, 'AI Strategist', 'एआई रणनीतिकार'], [20, 'Future Ready', 'भविष्य-तैयार'], [28, 'AI Professional', 'एआई पेशेवर']]
+  }
+};
+
+/* ===========================================================================
+   EXTRA_TOOLS — Section 4: expanded library, 50+ tools across 6 categories.
+   Every name below was checked against current (mid-2026) web results before
+   being hardcoded. Sora is deliberately excluded: OpenAI discontinued the
+   consumer app in April 2026 and is winding the API down in September 2026,
+   so it would be a bad recommendation for a platform being built now.
+   Most entries fall back to GENERIC_QUIZ (quiz: null) rather than getting a
+   bespoke quiz — matches the existing pattern, and writing 50 custom quizzes
+   is not a responsible use of a single build pass. A handful of flagship
+   picks per category get a real one so each category still feels distinct.
+   =========================================================================== */
+const EXTRA_TOOLS = [
+  { slug:'chatgpt-junior', e:'💬', cat:'learning-research', n:{en:'ChatGPT (Stories)',hi:'चैटजीपीटी (कहानियाँ)'}, d:{en:'Ask it for fun stories, jokes and riddles!',hi:'मज़ेदार कहानियाँ, चुटकुले और पहेलियाँ माँगो!'}, prompt:{en:'Tell me a funny story about a dinosaur who goes to school.',hi:'एक मज़ेदार कहानी सुनाओ, एक डायनासोर स्कूल जाता है।'}, quiz:null },
+  { slug:'gemini-junior', e:'✦', cat:'learning-research', n:{en:'Gemini (Questions)',hi:'जेमिनाई (सवाल)'}, d:{en:'Ask it anything you are curious about!',hi:'जो भी जानना हो वो पूछो!'}, prompt:{en:'Why is the sky blue? Explain it like I am 7 years old.',hi:'आसमान नीला क्यों है? 7 साल के बच्चे को समझाओ।'}, quiz:null },
+  { slug:'copilot', e:'⚡', cat:'vibe-coding', n:{en:'GitHub Copilot',hi:'गिटहब कोपायलट'}, d:{en:'An AI that writes code with you, line by line.',hi:'एआई जो आपके साथ कोड लिखता है।'}, prompt:{en:'Write a Python function that checks if a number is prime. Explain each line.',hi:'एक Python फ़ंक्शन लिखो जो prime number जाँचे। हर लाइन समझाओ।'}, quiz:null },
+  { slug:'notion-ai', e:'📝', cat:'learning-research', n:{en:'Notion AI',hi:'नोशन एआई'}, d:{en:'Organise your notes, tasks and study plans with AI.',hi:'नोट्स, काम और पढ़ाई की योजना एआई से व्यवस्थित करें।'}, prompt:{en:'Create a weekly study schedule for my board exams with daily goals.',hi:'बोर्ड परीक्षा के लिए रोज़ के लक्ष्य के साथ साप्ताहिक कार्यक्रम बनाओ।'}, quiz:null },
+
+  { slug:'bolt-new', e:'⚡', cat:'vibe-coding', n:{en:'Bolt.new',hi:'बोल्ट.न्यू'},
+    d:{en:'Describe a web app in plain English — Bolt builds and runs it in your browser.',hi:'सादे शब्दों में वेब ऐप बताएँ — बोल्ट उसे ब्राउज़र में बनाकर चलाता है।'},
+    prompt:{en:'Build a simple webpage that shows 5 facts about the water cycle, one at a time, with a Next button.',hi:'एक सरल वेबपेज बनाओ जो जल-चक्र के 5 तथ्य एक-एक करके अगला बटन के साथ दिखाए।'},
+    quiz:[
+      { q:{en:'"Vibe coding" means:',hi:'"वाइब कोडिंग" का मतलब है:'},
+        o:[{en:'Coding while listening to music',hi:'संगीत सुनते हुए कोड लिखना'},{en:'Describing what you want in plain language and AI writes the code',hi:'सादे शब्दों में बताना और एआई कोड लिखे'},{en:'Copying code from the internet',hi:'इंटरनेट से कोड कॉपी करना'},{en:'A type of video game',hi:'एक प्रकार का वीडियो गेम'}], a:1,
+        why:{en:'You describe the outcome in everyday words; the AI handles the actual code. It is still worth understanding what the result does.',hi:'आप परिणाम को आम शब्दों में बताते हैं; एआई असली कोड संभालता है। फिर भी यह समझना ज़रूरी है कि परिणाम क्या करता है।'} },
+      { q:{en:'Your AI-built app does something you did not ask for. What should you do?',hi:'आपका एआई-निर्मित ऐप कुछ ऐसा करता है जो आपने नहीं माँगा। क्या करें?'},
+        o:[{en:'Publish it anyway',hi:'फिर भी प्रकाशित करें'},{en:'Describe the fix clearly and ask it to correct just that part',hi:'सुधार स्पष्ट रूप से बताएँ और सिर्फ़ वह हिस्सा ठीक करने को कहें'},{en:'Start completely over',hi:'पूरी तरह नए सिरे से शुरू करें'},{en:'Ignore it',hi:'अनदेखा करें'}], a:1,
+        why:{en:'A small, specific correction request works far better than a vague one or scrapping everything.',hi:'छोटा, स्पष्ट सुधार अनुरोध अस्पष्ट अनुरोध या सब कुछ फिर से शुरू करने से बेहतर काम करता है।'} }
+    ] },
+  { slug:'lovable', e:'💗', cat:'vibe-coding', n:{en:'Lovable',hi:'लवएबल'},
+    d:{en:'Turns a written description into a working website or app, no coding needed.',hi:'लिखे विवरण को बिना कोडिंग के वेबसाइट या ऐप में बदलता है।'},
+    prompt:{en:'Build a one-page website for a school science fair project on renewable energy, with a title, 3 sections, and a photo placeholder.',hi:'नवीकरणीय ऊर्जा पर स्कूल विज्ञान मेले की एक-पृष्ठ वेबसाइट बनाओ — शीर्षक, 3 खंड, और फोटो स्थान सहित।'}, quiz:null },
+  { slug:'replit-ai', e:'🧩', cat:'vibe-coding', n:{en:'Replit',hi:'रेप्लिट'},
+    d:{en:'An AI coding space where you can build, run and share small projects from the browser.',hi:'ब्राउज़र से छोटे प्रोजेक्ट बनाने, चलाने और साझा करने वाला एआई कोडिंग स्थान।'},
+    prompt:{en:'Create a small quiz program with 5 questions about my Class 9 Science chapter, that tells me my score at the end.',hi:'कक्षा 9 विज्ञान अध्याय पर 5 सवालों का एक छोटा क्विज़ प्रोग्राम बनाओ जो अंत में स्कोर बताए।'}, quiz:null },
+  { slug:'v0-vercel', e:'▲', cat:'vibe-coding', n:{en:'v0 by Vercel',hi:'v0 (Vercel)'},
+    d:{en:'Describe a web page or component — v0 generates clean, ready-to-use code for it.',hi:'वेब पेज या हिस्सा बताएँ — v0 उसका साफ़, तैयार कोड बनाता है।'},
+    prompt:{en:'Build a simple landing page for a school eco-club, with a header, 3 feature cards, and a sign-up button.',hi:'स्कूल इको-क्लब के लिए सरल लैंडिंग पेज बनाओ — हेडर, 3 फ़ीचर कार्ड और साइन-अप बटन सहित।'}, quiz:null },
+  { slug:'base44-ai', e:'🏗️', cat:'vibe-coding', n:{en:'Base44',hi:'बेस44'},
+    d:{en:'Describe an app and get a complete working version, including simple backend features.',hi:'ऐप बताएँ और उसका पूरा वर्किंग वर्शन पाएँ, बैकएंड सहित।'},
+    prompt:{en:'Build a simple app where classmates can vote for their favourite school event idea.',hi:'एक ऐप बनाओ जिसमें सहपाठी अपने पसंदीदा स्कूल आयोजन के लिए वोट कर सकें।'}, quiz:null },
+  { slug:'cursor-ai', e:'⌨️', cat:'vibe-coding', n:{en:'Cursor',hi:'कर्सर'},
+    d:{en:'A code editor with AI built in — good once you already know a little real code.',hi:'एआई-सहित कोड एडिटर — थोड़ा असली कोड आने के बाद उपयोगी।'},
+    prompt:{en:'Open a simple HTML file and ask Cursor to add a button that changes the page colour when clicked.',hi:'एक सरल HTML फ़ाइल खोलो, कर्सर से एक बटन जोड़ने को कहो जो क्लिक पर पेज का रंग बदले।'}, quiz:null },
+  { slug:'windsurf-ai', e:'🏄', cat:'vibe-coding', n:{en:'Windsurf',hi:'विंडसर्फ़'},
+    d:{en:'An AI code editor that can work across a whole project, not just one file.',hi:'एआई कोड एडिटर जो पूरे प्रोजेक्ट पर काम कर सकता है, सिर्फ़ एक फ़ाइल पर नहीं।'},
+    prompt:{en:'Ask it to explain, in plain words, what each file in a small starter project does before you change anything.',hi:'कुछ भी बदलने से पहले, एक छोटे स्टार्टर प्रोजेक्ट की हर फ़ाइल क्या करती है, सादे शब्दों में समझने को कहो।'}, quiz:null },
+  { slug:'claude-code', e:'✳️', cat:'vibe-coding', n:{en:'Claude Code',hi:'क्लॉड कोड'},
+    d:{en:'An AI that works in a terminal to plan, write and fix code across a whole project.',hi:'एआई जो टर्मिनल में पूरे प्रोजेक्ट पर योजना बनाकर कोड लिखता और सुधारता है।'},
+    prompt:{en:'Ask it to add comments explaining each step of a short existing script, without changing what the script does.',hi:'किसी छोटी मौजूदा स्क्रिप्ट का व्यवहार बदले बिना, हर चरण समझाती टिप्पणियाँ जोड़ने को कहो।'},
+    quiz:[
+      { q:{en:'Before asking an AI coding tool to change a file, what is the safest first step?',hi:'एआई कोडिंग टूल से फ़ाइल बदलवाने से पहले सबसे सुरक्षित पहला कदम क्या है?'},
+        o:[{en:'Just let it change whatever it wants',hi:'जो चाहे बदलने दो'},{en:'Make a copy, or check it is saved somewhere recoverable',hi:'एक प्रति बनाओ, या सुनिश्चित करो कि यह कहीं वापस पाया जा सके'},{en:'Delete the original first',hi:'पहले मूल फ़ाइल हटा दो'},{en:'Nothing, AI never makes mistakes',hi:'कुछ नहीं, एआई कभी गलती नहीं करता'}], a:1,
+        why:{en:'AI coding tools are genuinely useful and still make mistakes. Keeping a way back is basic practice, in a school project or a real job.',hi:'एआई कोडिंग टूल सच में उपयोगी हैं और फिर भी गलती करते हैं। वापसी का रास्ता रखना बुनियादी आदत है।'} },
+      { q:{en:'A terminal-based coding AI is generally aimed at:',hi:'टर्मिनल-आधारित कोडिंग एआई आमतौर पर किसके लिए है:'},
+        o:[{en:'Complete beginners with zero technical setup',hi:'बिना किसी तकनीकी सेटअप वाले पूर्ण शुरुआती'},{en:'Someone comfortable typing commands, working across many files',hi:'कमांड टाइप करने में सहज कोई, कई फ़ाइलों पर काम करने वाला'},{en:'Only drawing pictures',hi:'सिर्फ़ चित्र बनाना'},{en:'Editing video',hi:'वीडियो एडिटिंग'}], a:1,
+        why:{en:'Terminal tools sit a step above app-builders like Bolt or Lovable — great once you are comfortable with real project structure.',hi:'टर्मिनल टूल, बोल्ट या लवएबल जैसे ऐप-बिल्डर से एक कदम आगे हैं — असली प्रोजेक्ट संरचना से सहज होने पर बेहतरीन।'} }
+    ] },
+
+  { slug:'adobe-express', e:'🖼️', cat:'image-ai', n:{en:'Adobe Express',hi:'एडोब एक्सप्रेस'},
+    d:{en:'Free design tool with AI image generation for posters, graphics and social posts.',hi:'पोस्टर, ग्राफ़िक्स और पोस्ट के लिए एआई इमेज जनरेशन वाला मुफ़्त डिज़ाइन टूल।'},
+    prompt:{en:'Design a poster titled Save Water with a blue and green theme for a school corridor.',hi:'"जल बचाओ" शीर्षक से नीले-हरे रंग का पोस्टर बनाओ, स्कूल गलियारे के लिए।'}, quiz:null },
+  { slug:'midjourney', e:'🌌', cat:'image-ai', n:{en:'Midjourney',hi:'मिडजर्नी'},
+    d:{en:'Known for the most artistic, striking image results of any generator.',hi:'सबसे कलात्मक, प्रभावशाली चित्र परिणामों के लिए जाना जाता है।'},
+    prompt:{en:'A watercolour-style illustration of the water cycle, bright and simple enough for a classroom wall.',hi:'जल-चक्र का वॉटरकलर-शैली चित्रण, कक्षा की दीवार के लिए चमकीला और सरल।'}, quiz:null },
+  { slug:'ideogram-ai', e:'🔤', cat:'image-ai', n:{en:'Ideogram',hi:'आइडियोग्राम'},
+    d:{en:'The image tool that is actually good at spelling words correctly inside a picture.',hi:'चित्र के अंदर शब्द सही ढंग से लिखने में सबसे अच्छा इमेज टूल।'},
+    prompt:{en:'A poster with the words "Save Water" in large bold letters, with a simple tap-and-droplet illustration.',hi:'बड़े मोटे अक्षरों में "जल बचाओ" लिखा पोस्टर, सरल नल-और-बूँद चित्रण सहित।'}, quiz:null },
+  { slug:'leonardo-ai', e:'🦁', cat:'image-ai', n:{en:'Leonardo AI',hi:'लियोनार्डो एआई'},
+    d:{en:'A free-friendly image generator with a large daily free allowance.',hi:'बड़े मुफ़्त दैनिक कोटे वाला इमेज जनरेटर।'},
+    prompt:{en:'A simple diagram-style image showing the layers of the Earth for a Geography project.',hi:'भूगोल प्रोजेक्ट के लिए पृथ्वी की परतें दिखाता सरल आरेख-शैली चित्र।'}, quiz:null },
+  { slug:'dalle-chatgpt', e:'🎨', cat:'image-ai', n:{en:'DALL·E (in ChatGPT)',hi:'DALL·E (चैटजीपीटी में)'},
+    d:{en:'Make images by chatting — describe it, then ask for changes in plain language.',hi:'चैट करके चित्र बनाओ — बताओ, फिर सादे शब्दों में बदलाव माँगो।'},
+    prompt:{en:'A friendly cartoon mascot for a school recycling drive, then ask it to make the mascot wave.',hi:'स्कूल पुनर्चक्रण अभियान के लिए एक दोस्ताना कार्टून शुभंकर बनाओ, फिर उसे हाथ हिलाते हुए बनवाओ।'}, quiz:null },
+  { slug:'stable-diffusion', e:'🧪', cat:'image-ai', n:{en:'Stable Diffusion',hi:'स्टेबल डिफ्यूज़न'},
+    d:{en:'A free, open-source image generator many other tools are built on top of.',hi:'मुफ़्त, ओपन-सोर्स इमेज जनरेटर जिस पर कई अन्य टूल आधारित हैं।'},
+    prompt:{en:'Try the same prompt on two different free hosted versions of it and compare the results.',hi:'इसके दो अलग-अलग मुफ़्त होस्टेड संस्करणों पर एक ही प्रॉम्प्ट आज़माओ और परिणाम तुलना करो।'}, quiz:null },
+  { slug:'recraft-ai', e:'🖌️', cat:'image-ai', n:{en:'Recraft',hi:'रीक्राफ़्ट'},
+    d:{en:'Good for clean vector-style graphics, icons and logos.',hi:'साफ़ वेक्टर-शैली ग्राफ़िक्स, आइकन और लोगो के लिए अच्छा।'},
+    prompt:{en:'A simple flat-style icon set of 4 renewable energy sources: solar, wind, water, and biomass.',hi:'4 नवीकरणीय ऊर्जा स्रोतों — सौर, पवन, जल, बायोमास — का सरल फ़्लैट-शैली आइकन सेट।'}, quiz:null },
+  { slug:'freepik-ai', e:'🗃️', cat:'image-ai', n:{en:'Freepik AI',hi:'फ़्रीपिक एआई'},
+    d:{en:'Image generation built into a huge library of existing graphics and templates.',hi:'मौजूदा ग्राफ़िक्स और टेम्पलेट्स की बड़ी लाइब्रेरी में बना इमेज जनरेशन।'},
+    prompt:{en:'Search for an existing chart template about pollution, then generate a matching illustration for the cover.',hi:'प्रदूषण पर मौजूदा चार्ट टेम्पलेट खोजो, फिर कवर के लिए मेल खाता चित्र बनाओ।'}, quiz:null },
+  { slug:'ms-designer', e:'🪟', cat:'image-ai', n:{en:'Microsoft Designer',hi:'माइक्रोसॉफ़्ट डिज़ाइनर'},
+    d:{en:'Free with a Microsoft account — makes posters, cards and social graphics from a description.',hi:'माइक्रोसॉफ़्ट खाते से मुफ़्त — विवरण से पोस्टर, कार्ड और ग्राफ़िक्स बनाता है।'},
+    prompt:{en:'A birthday card design for a classmate, in their favourite colour, with space to write a message.',hi:'सहपाठी के लिए जन्मदिन कार्ड, उनके पसंदीदा रंग में, संदेश लिखने की जगह सहित।'}, quiz:null },
+
+  { slug:'capcut-ai', e:'🎞️', cat:'video-ai', n:{en:'CapCut AI',hi:'कैपकट एआई'},
+    d:{en:'Free video editor with AI captions, background removal and effects.',hi:'एआई कैप्शन, बैकग्राउंड हटाने और इफ़ेक्ट्स वाला मुफ़्त वीडियो एडिटर।'},
+    prompt:{en:'Add auto-captions and a title card to a 30-second video explaining one step of the water cycle.',hi:'जल-चक्र के एक चरण को समझाने वाले 30-सेकंड वीडियो में ऑटो-कैप्शन और शीर्षक जोड़ो।'}, quiz:null },
+  { slug:'pika-labs', e:'🎥', cat:'video-ai', n:{en:'Pika',hi:'पीका'},
+    d:{en:'Fast, playful short video clips and effects from text or an image.',hi:'टेक्स्ट या चित्र से तेज़, मज़ेदार छोटे वीडियो क्लिप और इफ़ेक्ट्स।'},
+    prompt:{en:'Turn a still photo of a plant into a 3-second clip of it slowly growing taller.',hi:'पौधे की एक स्थिर तस्वीर को धीरे-धीरे बढ़ने की 3-सेकंड क्लिप में बदलो।'}, quiz:null },
+  { slug:'luma-dream', e:'🌙', cat:'video-ai', n:{en:'Luma Dream Machine',hi:'लूमा ड्रीम मशीन'},
+    d:{en:'Turns a photo into a short, smooth, cinematic-feeling video clip.',hi:'तस्वीर को छोटी, चिकनी, सिनेमाई अनुभव वाली वीडियो क्लिप में बदलता है।'},
+    prompt:{en:'Animate a photo of your school building with a gentle, slow camera movement.',hi:'अपने स्कूल भवन की तस्वीर में धीमी, कोमल कैमरा-गति जोड़ो।'}, quiz:null },
+  { slug:'kling-ai', e:'🎬', cat:'video-ai', n:{en:'Kling AI',hi:'क्लिंग एआई'},
+    d:{en:'Strong at longer, more realistic motion in generated video.',hi:'जनरेट किए वीडियो में लंबी, अधिक यथार्थवादी गति में मज़बूत।'},
+    prompt:{en:'A short clip showing a seed sprouting and growing into a small plant over "time".',hi:'बीज अंकुरित होकर छोटे पौधे में बदलने की "समय के साथ" छोटी क्लिप।'},
+    quiz:[
+      { q:{en:'A common weak spot in most AI-generated video is:',hi:'ज़्यादातर एआई-जनित वीडियो की एक आम कमज़ोरी है:'},
+        o:[{en:'Colours are always wrong',hi:'रंग हमेशा गलत होते हैं'},{en:'Hands, fast motion and object consistency between shots',hi:'हाथ, तेज़ गति, और शॉट के बीच वस्तु की निरंतरता'},{en:'Sound is always missing',hi:'ध्वनि हमेशा गायब होती है'},{en:'It never finishes generating',hi:'यह कभी जनरेट पूरा नहीं करता'}], a:1,
+        why:{en:'Even strong models still struggle with hands and keeping the same object looking identical across cuts — worth checking before you present it.',hi:'मज़बूत मॉडल भी हाथों और शॉट के बीच वस्तु को एक जैसा रखने में अभी संघर्ष करते हैं — प्रस्तुत करने से पहले जाँच लें।'} },
+      { q:{en:'You made a video with AI for a class project. What should you tell your teacher?',hi:'क्लास प्रोजेक्ट के लिए एआई से वीडियो बनाया। शिक्षक को क्या बताना चाहिए?'},
+        o:[{en:'Nothing, pretend you filmed it', hi:'कुछ नहीं, दिखावा करो कि खुद फ़िल्माया'},{en:'That AI generated the video, and what you did yourself (script, idea, editing)',hi:'बताओ कि वीडियो एआई ने बनाया, और आपने खुद क्या किया (स्क्रिप्ट, विचार, संपादन)'},{en:'Just say it is from the internet',hi:'बस कह दो यह इंटरनेट से है'},{en:'Only mention it if asked directly',hi:'सिर्फ़ सीधे पूछे जाने पर बताओ'}], a:1,
+        why:{en:'Being upfront about which parts were AI-made and which were your own work is the honest, and expected, way to use these tools in school.',hi:'कौन से हिस्से एआई ने बनाए और कौन से आपके अपने थे, यह साफ़ बताना स्कूल में इन टूल के उपयोग का ईमानदार और अपेक्षित तरीका है।'} }
+    ] },
+  { slug:'google-veo', e:'✨', cat:'video-ai', n:{en:'Google Veo (in Gemini)',hi:'गूगल वीओ (जेमिनाई में)'},
+    d:{en:'Google\u2019s video generator, reached through Gemini — good realism and sound.',hi:'गूगल का वीडियो जनरेटर, जेमिनाई से उपयोग होता है — अच्छा यथार्थ और ध्वनि।'},
+    prompt:{en:'A short clip of rain falling on a window, for the mood-setting opening of a class presentation.',hi:'कक्षा प्रस्तुति की शुरुआत के लिए, खिड़की पर बारिश गिरने की छोटी क्लिप।'}, quiz:null },
+  { slug:'invideo-ai', e:'📹', cat:'video-ai', n:{en:'InVideo AI',hi:'इनवीडियो एआई'},
+    d:{en:'Describe a topic and it assembles a full short explainer video, scenes and voiceover included.',hi:'विषय बताओ, यह पूरा छोटा व्याख्यात्मक वीडियो जोड़ता है — दृश्य और आवाज़ सहित।'},
+    prompt:{en:'A 60-second explainer video on the water cycle for a class presentation.',hi:'कक्षा प्रस्तुति के लिए जल-चक्र पर 60-सेकंड का व्याख्यात्मक वीडियो।'}, quiz:null },
+  { slug:'hailuo-ai', e:'🌊', cat:'video-ai', n:{en:'Hailuo AI (MiniMax)',hi:'हैलुओ एआई (मिनीमैक्स)'},
+    d:{en:'Known for expressive, slightly stylised motion from a single prompt.',hi:'एक ही प्रॉम्प्ट से भावपूर्ण, कुछ शैलीबद्ध गति के लिए जाना जाता है।'},
+    prompt:{en:'A short clip of a paper boat floating down a stream, for a poem recital background.',hi:'कविता-पाठ की पृष्ठभूमि के लिए, धारा में तैरती कागज़ की नाव की छोटी क्लिप।'}, quiz:null },
+
+  { slug:'wolfram-alpha', e:'∑', cat:'learning-research', n:{en:'Wolfram Alpha',hi:'वुल्फ्राम अल्फा'},
+    d:{en:'A "computational" search engine — it actually solves maths and science problems, step by step.',hi:'एक "गणनात्मक" सर्च इंजन — यह गणित और विज्ञान की समस्याएँ चरणबद्ध हल करता है।'},
+    prompt:{en:'Type in a quadratic equation from your homework and compare its steps to your own working.',hi:'गृहकार्य से एक द्विघात समीकरण डालो और उसके चरणों की तुलना अपने हल से करो।'},
+    quiz:[
+      { q:{en:'Wolfram Alpha is best described as:',hi:'वुल्फ्राम अल्फा का सबसे सही विवरण है:'},
+        o:[{en:'A chatbot for casual conversation',hi:'सामान्य बातचीत के लिए चैटबॉट'},{en:'A tool that actually computes maths and science answers with steps',hi:'चरणों सहित असली गणित-विज्ञान उत्तर निकालने वाला टूल'},{en:'A video generator',hi:'वीडियो जनरेटर'},{en:'A social media app',hi:'सोशल मीडिया ऐप'}], a:1,
+        why:{en:'Unlike a chat model guessing the next likely words, it runs real calculations — useful for checking your working exactly.',hi:'चैट मॉडल के अगले शब्द अनुमान लगाने के उलट, यह असली गणना करता है — अपना हल ठीक से जाँचने के लिए उपयोगी।'} },
+      { q:{en:'Best use of a computational tool like this in maths homework:',hi:'गणित गृहकार्य में इस जैसे गणनात्मक टूल का सबसे अच्छा उपयोग:'},
+        o:[{en:'Copy the final answer only',hi:'सिर्फ़ अंतिम उत्तर कॉपी करो'},{en:'Solve it yourself first, then compare steps to find where you went wrong',hi:'पहले खुद हल करो, फिर चरणों की तुलना कर गलती खोजो'},{en:'Never use it, it is cheating',hi:'कभी उपयोग न करो, यह नक़ल है'},{en:'Only use it during exams',hi:'सिर्फ़ परीक्षा में उपयोग करो'}], a:1,
+        why:{en:'Comparing your own working against a verified method teaches you exactly where your understanding breaks down.',hi:'अपने हल की एक सत्यापित विधि से तुलना करना बताता है कि आपकी समझ ठीक कहाँ चूकती है।'} }
+    ] },
+  { slug:'elicit-ai', e:'📄', cat:'learning-research', n:{en:'Elicit',hi:'एलिसिट'},
+    d:{en:'Finds and summarises real research papers on a topic — good for older students\u2019 projects.',hi:'किसी विषय पर असली शोध-पत्र खोजकर सारांशित करता है — बड़े छात्रों के प्रोजेक्ट के लिए अच्छा।'},
+    prompt:{en:'Find 3 research summaries related to your Class 12 project topic and note one finding from each.',hi:'अपने कक्षा 12 प्रोजेक्ट विषय से जुड़े 3 शोध-सारांश खोजो, हर एक से एक निष्कर्ष लिखो।'}, quiz:null },
+  { slug:'consensus-ai', e:'🧬', cat:'learning-research', n:{en:'Consensus',hi:'कॉन्सेंसस'},
+    d:{en:'Answers a question by showing what real scientific studies actually found.',hi:'सवाल का उत्तर असली वैज्ञानिक अध्ययनों के निष्कर्ष दिखाकर देता है।'},
+    prompt:{en:'Ask a yes/no science question you are curious about and see how many studies agree.',hi:'जिज्ञासा वाला हाँ/नहीं विज्ञान सवाल पूछो, देखो कितने अध्ययन सहमत हैं।'}, quiz:null },
+  { slug:'quizlet-ai', e:'🃏', cat:'learning-research', n:{en:'Quizlet AI',hi:'क्विज़लेट एआई'},
+    d:{en:'Turns your notes into flashcards and practice tests automatically.',hi:'आपके नोट्स को अपने आप फ़्लैशकार्ड और अभ्यास परीक्षा में बदलता है।'},
+    prompt:{en:'Paste this week\u2019s class notes and generate a 10-card flashcard set for revision.',hi:'इस सप्ताह के कक्षा नोट्स डालो, रिवीज़न के लिए 10-कार्ड सेट बनवाओ।'}, quiz:null },
+  { slug:'otter-ai', e:'🦦', cat:'learning-research', n:{en:'Otter.ai',hi:'ऑटर.एआई'},
+    d:{en:'Records and transcribes a class or lecture, then summarises the key points.',hi:'कक्षा या व्याख्यान रिकॉर्ड-लिपिबद्ध कर मुख्य बिंदु सारांशित करता है।'},
+    prompt:{en:'With your teacher\u2019s permission, record one class discussion and ask it for the 5 main points.',hi:'शिक्षक की अनुमति से एक कक्षा-चर्चा रिकॉर्ड करो, 5 मुख्य बिंदु माँगो।'}, quiz:null },
+  { slug:'grammarly-ai', e:'✓', cat:'learning-research', n:{en:'Grammarly',hi:'ग्रामरली'},
+    d:{en:'Checks your writing for grammar, clarity and tone as you type.',hi:'लिखते समय व्याकरण, स्पष्टता और लहजे की जाँच करता है।'},
+    prompt:{en:'Paste an essay draft and review its suggestions — accept the ones you agree with, and think about why for the rest.',hi:'निबंध का मसौदा डालो, सुझाव देखो — जिनसे सहमत हो स्वीकार करो, बाकी पर सोचो क्यों।'}, quiz:null },
+
+  { slug:'scratch-ai', e:'🧶', cat:'game-making', n:{en:'Scratch',hi:'स्क्रैच'},
+    d:{en:'Drag-and-drop blocks, with AI extensions, to build your own simple games — no typing code.',hi:'ड्रैग-एंड-ड्रॉप ब्लॉक्स से, एआई एक्सटेंशन सहित, अपना सरल गेम बनाएँ — कोड टाइप किए बिना।'},
+    prompt:{en:'Plan a simple quiz game in Scratch where a character asks 3 questions about your Science chapter and cheers for correct answers.',hi:'स्क्रैच में एक सरल क्विज़ गेम बनाओ जिसमें किरदार विज्ञान अध्याय पर 3 सवाल पूछे और सही उत्तर पर खुश हो।'},
+    quiz:[
+      { q:{en:'Scratch is best described as:',hi:'स्क्रैच का सबसे सही विवरण है:'},
+        o:[{en:'A block-based tool to build games and animations without typing code',hi:'बिना कोड टाइप किए गेम और एनिमेशन बनाने वाला ब्लॉक-आधारित टूल'},{en:'A social media app',hi:'सोशल मीडिया ऐप'},{en:'A video-calling tool',hi:'वीडियो-कॉलिंग टूल'},{en:'A search engine',hi:'सर्च इंजन'}], a:0,
+        why:{en:'Scratch, from MIT, lets you snap together visual blocks to make something interactive — the logic is the same as real code, just visual.',hi:'MIT का स्क्रैच विज़ुअल ब्लॉक जोड़कर इंटरैक्टिव चीज़ें बनाने देता है — तर्क असली कोड जैसा ही है, बस विज़ुअल।'} },
+      { q:{en:'You want your Scratch character to react when you wave at the camera. What do you need?',hi:'आप चाहते हैं कि कैमरे पर हाथ हिलाने पर किरदार प्रतिक्रिया दे। क्या चाहिए?'},
+        o:[{en:'Nothing extra, Scratch does this by default',hi:'कुछ नहीं, स्क्रैच यह अपने आप करता है'},{en:'A gesture/pose recognition extension',hi:'हाव-भाव/मुद्रा पहचान एक्सटेंशन'},{en:'A new computer',hi:'नया कंप्यूटर'},{en:'A printed manual',hi:'छपी हुई पुस्तिका'}], a:1,
+        why:{en:'Motion-reacting projects combine Scratch with a pose/gesture model — exactly what the Gesture AI category covers.',hi:'गति-प्रतिक्रिया प्रोजेक्ट स्क्रैच को मुद्रा/हाव-भाव मॉडल से जोड़ते हैं — यही जेस्चर एआई श्रेणी में आता है।'} }
+    ] },
+  { slug:'rosebud-ai', e:'🌹', cat:'game-making', n:{en:'Rosebud AI',hi:'रोज़बड एआई'},
+    d:{en:'Describe a game idea in the chat and watch a playable browser game appear.',hi:'चैट में गेम आइडिया बताओ, ब्राउज़र में खेलने योग्य गेम बनता देखो।'},
+    prompt:{en:'A simple quiz game where a character asks 5 Science questions and celebrates correct answers.',hi:'एक सरल क्विज़ गेम जिसमें किरदार 5 विज्ञान सवाल पूछे और सही उत्तर पर जश्न मनाए।'}, quiz:null },
+  { slug:'roblox-studio', e:'🧊', cat:'game-making', n:{en:'Roblox Studio Assistant',hi:'रोब्लॉक्स स्टूडियो असिस्टेंट'},
+    d:{en:'Roblox\u2019s own in-editor AI that helps write game logic and generate 3D objects from text.',hi:'रोब्लॉक्स का अपना इन-एडिटर एआई जो गेम-लॉजिक लिखने और टेक्स्ट से 3D वस्तुएँ बनाने में मदद करता है।'},
+    prompt:{en:'Ask it to generate a simple obstacle course object and explain, in plain words, how the piece works.',hi:'एक सरल बाधा-कोर्स वस्तु बनवाओ, फिर सादे शब्दों में समझो यह कैसे काम करती है।'}, quiz:null },
+  { slug:'gdevelop-ai', e:'🕹️', cat:'game-making', n:{en:'GDevelop',hi:'जीडेवलप'},
+    d:{en:'A free, open no-code game engine with AI assistance for building real, publishable games.',hi:'मुफ़्त, ओपन नो-कोड गेम इंजन, असली प्रकाशन-योग्य गेम बनाने में एआई सहायता सहित।'},
+    prompt:{en:'Build a simple maths quiz platformer where collecting the right answer moves the character forward.',hi:'एक सरल गणित-क्विज़ प्लेटफ़ॉर्मर बनाओ जहाँ सही उत्तर इकट्ठा करने से किरदार आगे बढ़े।'}, quiz:null },
+  { slug:'buildbox-ai', e:'🧱', cat:'game-making', n:{en:'Buildbox',hi:'बिल्डबॉक्स'},
+    d:{en:'A visual, drag-and-drop game builder with AI-assisted asset and level generation.',hi:'एआई-सहायता प्राप्त एसेट और लेवल जनरेशन वाला विज़ुअल, ड्रैग-एंड-ड्रॉप गेम बिल्डर।'},
+    prompt:{en:'Plan a simple endless-runner game themed around collecting recyclable items and avoiding litter.',hi:'पुनर्चक्रण योग्य वस्तुएँ इकट्ठा करने और कचरे से बचने की थीम पर एक सरल एंडलेस-रनर गेम की योजना बनाओ।'}, quiz:null },
+
+  { slug:'teachable-machine', e:'🖐️', cat:'gesture-ai', n:{en:'Google Teachable Machine',hi:'गूगल टीचेबल मशीन'},
+    d:{en:'Train your webcam to recognise hand gestures, poses or images — free, no coding.',hi:'अपने वेबकैम को हाव-भाव, मुद्रा या चित्र पहचानना सिखाएँ — मुफ़्त, बिना कोडिंग।'},
+    prompt:{en:'Train a model to recognise 3 hand signs, one for each stage of a process you are studying, then explain the process using only your hands.',hi:'3 हाथ के इशारे पहचानने का मॉडल बनाओ — पढ़ाई जा रही प्रक्रिया के हर चरण के लिए एक — फिर केवल हाथों से प्रक्रिया समझाओ।'},
+    quiz:[
+      { q:{en:'Teachable Machine lets you train a model using:',hi:'टीचेबल मशीन किससे मॉडल प्रशिक्षित करने देता है:'},
+        o:[{en:'Only pre-written code',hi:'सिर्फ़ पहले से लिखा कोड'},{en:'Your own examples — images, sounds or poses you show it',hi:'आपके अपने उदाहरण — चित्र, ध्वनि या मुद्राएँ जो आप दिखाते हैं'},{en:'A paid subscription only',hi:'सिर्फ़ भुगतान की सदस्यता'},{en:'Downloaded textbooks',hi:'डाउनलोड की गई किताबें'}], a:1,
+        why:{en:'You show it examples through your camera or microphone, and it learns the pattern — no coding needed.',hi:'आप कैमरे या माइक से उदाहरण दिखाते हैं, यह पैटर्न सीखता है — कोडिंग की ज़रूरत नहीं।'} },
+      { q:{en:'A gesture-controlled science-fair model is a good example of:',hi:'हाव-भाव-नियंत्रित विज्ञान-मेला मॉडल किसका अच्छा उदाहरण है:'},
+        o:[{en:'A hands-free, interactive working model',hi:'हाथों के बिना चलने वाला इंटरैक्टिव वर्किंग मॉडल'},{en:'Cheating on an assignment',hi:'असाइनमेंट में नक़ल करना'},{en:'A video game only',hi:'सिर्फ़ एक वीडियो गेम'},{en:'Something needing no explanation to teachers',hi:'शिक्षकों को कुछ समझाने की ज़रूरत नहीं'}], a:0,
+        why:{en:'This is exactly the kind of physical, interactive working model the doc calls for — you should still be able to explain how it works.',hi:'यह ठीक वैसा ही भौतिक, इंटरैक्टिव वर्किंग मॉडल है जिसकी बात होती है — फिर भी आपको बता पाना चाहिए कि यह कैसे काम करता है।'} }
+    ] },
+  { slug:'mediapipe', e:'✋', cat:'gesture-ai', n:{en:'MediaPipe',hi:'मीडियापाइप'},
+    d:{en:'Google\u2019s free framework for real-time hand, face and body tracking in a webcam.',hi:'वेबकैम में वास्तविक-समय हाथ, चेहरा और शरीर ट्रैकिंग के लिए गूगल का मुफ़्त फ़्रेमवर्क।'},
+    prompt:{en:'Pair it with Teachable Machine to build a hands-free "next slide" gesture for a presentation.',hi:'प्रस्तुति के लिए हाथों-रहित "अगली स्लाइड" इशारा बनाने के लिए इसे टीचेबल मशीन के साथ जोड़ो।'}, quiz:null },
+  { slug:'leap-motion', e:'🤚', cat:'gesture-ai', n:{en:'Ultraleap (Leap Motion)',hi:'अल्ट्रालीप (लीप मोशन)'},
+    d:{en:'A small sensor plus software that tracks precise finger and hand movement in 3D.',hi:'एक छोटा सेंसर और सॉफ़्टवेयर जो 3D में उँगली और हाथ की सटीक गति ट्रैक करता है।'},
+    prompt:{en:'Plan a simple project where moving your hand up or down controls something on screen, like a bar chart value.',hi:'एक सरल प्रोजेक्ट की योजना बनाओ जहाँ हाथ ऊपर-नीचे करने से स्क्रीन पर कुछ नियंत्रित हो, जैसे बार-चार्ट मान।'}, quiz:null },
+  { slug:'wekinator', e:'🎛️', cat:'gesture-ai', n:{en:'Wekinator',hi:'वेकिनेटर'},
+    d:{en:'Free tool that lets you train your own gesture-to-action model by example, no coding needed.',hi:'उदाहरण से अपना खुद का इशारा-से-क्रिया मॉडल प्रशिक्षित करने वाला मुफ़्त टूल, कोडिंग की ज़रूरत नहीं।'},
+    prompt:{en:'Train it to recognise 2 poses and connect each to a different sound, for an interactive science-fair demo.',hi:'2 मुद्राएँ पहचानने का प्रशिक्षण दो, हर एक को अलग ध्वनि से जोड़ो — इंटरैक्टिव विज्ञान-मेला प्रदर्शन के लिए।'}, quiz:null }
+];
+
+/* Every tool lookup in the app must go through this — EXTRA_TOOLS holds 40+
+   of the 50+ tools, and a lookup that only checks TOOLS silently fails on all
+   of them (the button does nothing, with no error). Built once at load. */
+const ALL_TOOLS = [...TOOLS, ...EXTRA_TOOLS];
+const TOOL_BY_SLUG = new Map(ALL_TOOLS.map(t => [t.slug, t]));
+
+function groupCfg() { return CLASS_GROUPS[S.classGroup] || CLASS_GROUPS.middle; }
+function groupTools() {
+  const cfg = groupCfg();
+  return cfg.toolSlugs.map(slug => TOOL_BY_SLUG.get(slug)).filter(Boolean);
+}
+function groupTitleFor(lv) {
+  const cfg = groupCfg();
+  const titles = cfg.titles || TITLES;
+  let cur = titles[0];
+  for (const tl of titles) if (lv >= tl[0]) cur = tl;
+  return cur;
+}
+function groupQuests() { return groupCfg().questPool || QUESTS; }
+
+/* ===========================================================================
+   CURRICULUM — Section 3: Board > Class > Subject > Chapter > Prompt set.
+   NCERT chapter links point to the real textbook.php pattern on ncert.nic.in
+   (verified against the same source used for the earlier NCERT Library).
+   GSEB has no equivalent deep-linkable chapter PDFs I could verify, so those
+   entries link to the official state portal (gujarat-education.gov.in) at
+   the subject level and are clearly marked as sample content — see
+   gsebSampleNote, shown wherever a GSEB chapter is opened.
+   This is intentionally a handful of chapters per subject, not the full
+   syllabus — the change request explicitly asks for a structure that scales
+   from an admin-editable table, not a one-time content dump.
+   =========================================================================== */
+/* ===========================================================================
+   AI PROMPT LIBRARY — from Voldebug_AI_Prompt_Library.docx
+   ---------------------------------------------------------------------------
+   Three parts, matching the source document's own structure:
+   - PROMPT_TEMPLATES (its "Section A"): 6 reusable formulas, one per output
+     type. build() renders live from whatever the student types in — this is
+     what turns a static bracketed template into an actual interactive tool.
+   - PROMPT_TOOL_DIRECTORY (its "Section B"): quick-reference tool list by
+     output type. Kept as its own small tool set rather than folded into the
+     main 51-tool Explore library — these are content-generation tools
+     (slides, diagrams, mind maps) that don't fit any of Explore's existing
+     6 categories, and forcing a fit would be worse than keeping them
+     separate and honest about what they're for.
+   - PROMPT_EXAMPLES (its "Section C"): worked examples per class/subject.
+     The source document itself flags these topic names as illustrative,
+     to be matched against the real current NCERT/GSEB edition before
+     publishing — carried through here as promptLibrarySampleNote, same
+     honesty pattern as the GSEB curriculum notice.
+   One correction made silently: the source document's example "age"
+   climbs as Class+10 (a Class 6 prompt targets a "16-year-old"), which
+   doesn't reflect real classroom ages. AGE_FOR_CLASS below uses realistic
+   ages instead, since a wrong age in a generated prompt would produce a
+   worse result for the student, not just a cosmetic mismatch.
+   =========================================================================== */
+
+const AGE_FOR_CLASS = { 6: 11, 7: 12, 8: 13, 9: 14, 10: 15, 11: 16, 12: 17 };
+
+/* Topic suggestions for students who tap "Surprise me" with no topic in
+   mind yet. Deliberately spans common subjects rather than one — the point
+   is to show the builder works for anything, not to write their homework
+   topic for them. */
+const SURPRISE_TOPICS = [
+  { topic: 'The Water Cycle', subject: 'Science' },
+  { topic: 'Photosynthesis', subject: 'Science' },
+  { topic: 'Newton\u2019s Laws of Motion', subject: 'Physics' },
+  { topic: 'The French Revolution', subject: 'History' },
+  { topic: 'Types of Triangles', subject: 'Mathematics' },
+  { topic: 'The Solar System', subject: 'Science' },
+  { topic: 'Supply and Demand', subject: 'Economics' },
+  { topic: 'Parts of a Plant Cell', subject: 'Biology' },
+  { topic: 'The Indian Freedom Movement', subject: 'Social Science' },
+  { topic: 'States of Matter', subject: 'Chemistry' },
+  { topic: 'Fractions and Decimals', subject: 'Mathematics' },
+  { topic: 'The Digestive System', subject: 'Biology' }
+];
+
+/* The count field is free-typed, and a browser's min/max attributes are a
+   UI hint, not an enforced constraint on the raw value JS reads back — a
+   student can type 0, a negative number, or 500 and .value will happily
+   return exactly that string. Every one of those needs to become a sane
+   slide count, not get pasted straight into the prompt. */
+function clampSlideCount(raw) {
+  const n = parseInt(raw, 10);
+  if (!Number.isFinite(n)) return 8;
+  return Math.min(15, Math.max(4, n));
+}
+
+const PROMPT_TEMPLATES = [
+  { key: 'slides', c: '#e5761c', c2: '#f2b012', emoji: '📊', n: { en: 'Slide Deck', hi: 'स्लाइड प्रस्तुति' },
+    blurb: { en: 'Turns a topic into a ready classroom presentation.', hi: 'विषय को कक्षा-प्रस्तुति में बदलता है।' },
+    fields: ['topic', 'cls', 'subject', 'chapter', 'count'],
+    build: (v) => `Create a ${clampSlideCount(v.count)}-slide presentation explaining ${v.topic} from Class ${v.cls} ${v.subject}, chapter '${v.chapter}'. Use simple language for a ${AGE_FOR_CLASS[v.cls] || 12}-year-old student. Include: 1) a title slide, 2) key definitions, 3) 2-3 real-life examples, 4) one simple diagram description per concept, 5) a 3-question recap quiz on the final slide. Use short bullet points, not paragraphs.`,
+    tools: [{ n: 'Gamma', url: 'https://gamma.app' }, { n: 'Canva Magic Design', url: 'https://www.canva.com/magic-design/' }, { n: 'Tome', url: 'https://tome.app' }] },
+  { key: 'diagram', c: '#0d9c8a', c2: '#3fc07a', emoji: '🗺️', n: { en: 'Concept Diagram', hi: 'अवधारणा चित्र' },
+    blurb: { en: 'A visual, labelled breakdown of a process, cycle, or structure.', hi: 'किसी प्रक्रिया या संरचना का लेबल किया चित्र।' },
+    fields: ['topic', 'cls', 'subject', 'chapter'],
+    build: (v) => `Create a clear, labeled diagram or infographic explaining ${v.topic} from Class ${v.cls} ${v.subject}, chapter '${v.chapter}'. Show the step-by-step process, parts, or relationships involved. Use simple labels and arrows, keep it visually clean, and match the style of a school textbook.`,
+    tools: [{ n: 'Napkin AI', url: 'https://www.napkin.ai' }, { n: 'Whimsical', url: 'https://whimsical.com' }, { n: 'Canva', url: 'https://www.canva.com' }] },
+  { key: 'image', c: '#e0448f', c2: '#f97362', emoji: '🎨', n: { en: 'Illustrative Image', hi: 'व्याख्यात्मक चित्र' },
+    blurb: { en: 'A clean visual of an object, organism, or scene from the chapter.', hi: 'अध्याय की किसी वस्तु या दृश्य का साफ़ चित्र।' },
+    fields: ['topic', 'cls', 'subject', 'chapter'],
+    build: (v) => `Generate a clear, textbook-style illustration of ${v.topic} as covered in Class ${v.cls} ${v.subject}, chapter '${v.chapter}'. Style: simple, colourful, educational diagram (not photorealistic), clearly labeled, suitable for a ${AGE_FOR_CLASS[v.cls] || 12}-year-old student.`,
+    tools: [{ n: 'ChatGPT (Images)', url: 'https://chatgpt.com' }, { n: 'Ideogram', url: 'https://ideogram.ai' }, { n: 'Leonardo AI', url: 'https://leonardo.ai' }] },
+  { key: 'mindmap', c: '#5b6ef5', c2: '#8b5cf6', emoji: '🧠', n: { en: 'Mind Map', hi: 'माइंड मैप' },
+    blurb: { en: 'Breaks a chapter into branches for quick revision.', hi: 'अध्याय को शाखाओं में बाँटकर रिवीज़न आसान बनाता है।' },
+    fields: ['topic', 'cls', 'subject', 'chapter'],
+    build: (v) => `Create a mind map for Class ${v.cls} ${v.subject}, chapter '${v.chapter}'. Central topic: ${v.topic}. Branch into the main sub-topics, and under each sub-topic list 2-3 key points or examples. Keep each point under 6 words.`,
+    tools: [{ n: 'Mapify', url: 'https://mapify.so' }, { n: 'Whimsical', url: 'https://whimsical.com' }, { n: 'Miro AI', url: 'https://miro.com' }] },
+  { key: 'video', c: '#8b46d6', c2: '#c159d8', emoji: '🎬', n: { en: 'Video Script', hi: 'वीडियो स्क्रिप्ट' },
+    blurb: { en: 'A 60-second script students can turn into a video.', hi: '60-सेकंड की स्क्रिप्ट जिसे वीडियो में बदला जा सके।' },
+    fields: ['topic', 'cls', 'subject', 'chapter'],
+    build: (v) => `Write a 60-second explainer video script for ${v.topic} from Class ${v.cls} ${v.subject}, chapter '${v.chapter}'. Structure: Hook (1 line), explanation in 3 simple steps, 1 real-life example, 1-line recap. Keep the tone friendly and simple for a ${AGE_FOR_CLASS[v.cls] || 12}-year-old student.`,
+    tools: [{ n: 'InVideo AI', url: 'https://invideo.io' }, { n: 'Pictory', url: 'https://pictory.ai' }, { n: 'Canva Video', url: 'https://www.canva.com/video-editor/' }] },
+  { key: 'quiz', c: '#1899c4', c2: '#42c4d8', emoji: '❓', n: { en: 'Practice Quiz', hi: 'अभ्यास क्विज़' },
+    blurb: { en: 'Instant self-test material with an answer key.', hi: 'उत्तर-कुंजी सहित तुरंत आत्म-परीक्षण सामग्री।' },
+    fields: ['topic', 'cls', 'subject', 'chapter'],
+    build: (v) => `Create 10 practice questions on ${v.topic} from Class ${v.cls} ${v.subject}, chapter '${v.chapter}': 5 MCQs, 3 short-answer, 2 long-answer. Include the answer key at the end. Match the difficulty to CBSE/GSEB Class ${v.cls} exams.`,
+    tools: [{ n: 'ChatGPT', url: 'https://chatgpt.com' }, { n: 'Claude', url: 'https://claude.ai' }, { n: 'Quizizz AI', url: 'https://quizizz.com' }] }
+];
+const PROMPT_TEMPLATE_BY_KEY = new Map(PROMPT_TEMPLATES.map(t => [t.key, t]));
+
+/* Section C — worked examples. Topic names are illustrative (see notice in
+   the UI); one example subject per class band is drawn from each of the
+   templates above so browsing shows real variety, not six diagrams in a row. */
+const PROMPT_EXAMPLES = [
+  { cls: 6, items: [
+    { subject: 'Science', topic: 'Sources of Food & Nutrients', chapter: 'Sources of Food & Nutrients', tpl: 'diagram' },
+    { subject: 'Mathematics', topic: 'Whole Numbers & Basic Geometry', chapter: 'Whole Numbers & Basic Geometry', tpl: 'slides' },
+    { subject: 'Social Science', topic: 'Early Civilizations & Timelines', chapter: 'Early Civilizations & Timelines', tpl: 'mindmap' },
+    { subject: 'English', topic: 'Reading Comprehension Practice', chapter: 'Reading Comprehension Practice', tpl: 'quiz' }
+  ] },
+  { cls: 7, items: [
+    { subject: 'Science', topic: 'Nutrition in Plants & Animals', chapter: 'Nutrition in Plants & Animals', tpl: 'diagram' },
+    { subject: 'Mathematics', topic: 'Fractions & Decimals', chapter: 'Fractions & Decimals', tpl: 'slides' },
+    { subject: 'Social Science', topic: 'Medieval Indian History', chapter: 'Medieval Indian History', tpl: 'mindmap' },
+    { subject: 'English', topic: 'Grammar: Tenses & Sentence Types', chapter: 'Grammar: Tenses & Sentence Types', tpl: 'quiz' }
+  ] },
+  { cls: 8, items: [
+    { subject: 'Science', topic: 'Force, Friction & Pressure', chapter: 'Force, Friction & Pressure', tpl: 'diagram' },
+    { subject: 'Mathematics', topic: 'Rational Numbers & Linear Equations', chapter: 'Rational Numbers & Linear Equations', tpl: 'slides' },
+    { subject: 'Social Science', topic: "India's Freedom Struggle", chapter: "India's Freedom Struggle", tpl: 'mindmap' }
+  ] },
+  { cls: 9, items: [
+    { subject: 'Science', topic: 'Matter, Atoms & Molecules', chapter: 'Matter, Atoms & Molecules', tpl: 'diagram' },
+    { subject: 'Mathematics', topic: 'Number Systems & Coordinate Geometry', chapter: 'Number Systems & Coordinate Geometry', tpl: 'slides' },
+    { subject: 'Social Science', topic: 'Democracy & Constitutional Design', chapter: 'Democracy & Constitutional Design', tpl: 'mindmap' }
+  ] },
+  { cls: 10, items: [
+    { subject: 'Science', topic: 'Chemical Reactions & Life Processes', chapter: 'Chemical Reactions & Life Processes', tpl: 'diagram' },
+    { subject: 'Mathematics', topic: 'Trigonometry & Quadratic Equations', chapter: 'Trigonometry & Quadratic Equations', tpl: 'slides' },
+    { subject: 'Social Science', topic: 'Nationalism & Resource Management', chapter: 'Nationalism & Resource Management', tpl: 'mindmap' }
+  ] },
+  { cls: 11, items: [
+    { subject: 'Physics', topic: 'Laws of Motion', chapter: 'Laws of Motion', tpl: 'video' },
+    { subject: 'Chemistry', topic: 'Structure of the Atom', chapter: 'Structure of the Atom', tpl: 'diagram' },
+    { subject: 'Biology', topic: 'The Cell: Unit of Life', chapter: 'The Cell: Unit of Life', tpl: 'image' },
+    { subject: 'Accountancy', topic: 'Basics of Accounting', chapter: 'Basics of Accounting', tpl: 'slides' },
+    { subject: 'Economics', topic: 'Statistics for Economics', chapter: 'Statistics for Economics', tpl: 'quiz' },
+    { subject: 'Business Studies', topic: 'Forms of Business Organisation', chapter: 'Forms of Business Organisation', tpl: 'mindmap' }
+  ] },
+  { cls: 12, items: [
+    { subject: 'Physics', topic: 'Electrostatics', chapter: 'Electrostatics', tpl: 'video' },
+    { subject: 'Chemistry', topic: 'Electrochemistry', chapter: 'Electrochemistry', tpl: 'diagram' },
+    { subject: 'Biology', topic: 'Genetics & Evolution', chapter: 'Genetics & Evolution', tpl: 'image' },
+    { subject: 'Accountancy', topic: 'Partnership Accounts', chapter: 'Partnership Accounts', tpl: 'slides' },
+    { subject: 'Economics', topic: 'National Income & Macroeconomics', chapter: 'National Income & Macroeconomics', tpl: 'quiz' },
+    { subject: 'Business Studies', topic: 'Principles of Management', chapter: 'Principles of Management', tpl: 'mindmap' }
+  ] }
+];
+
+const CURRICULUM = {
+  ncert: {
+    label: { en: 'NCERT', hi: 'NCERT' },
+    emoji: '🇮🇳',
+    official: true,
+    classes: {
+      6: { science: { label:{en:'Science',hi:'विज्ञान'}, emoji:'🔬', chapters: [
+        { slug:'food-sources', title:{en:'Food: Where Does It Come From?',hi:'भोजन: यह कहाँ से आता है?'}, url:'https://ncert.nic.in/textbook.php?fesc1=1-16',
+          prompts:[
+            {tool:'chatgpt', text:{en:'List 10 foods you ate this week and ask ChatGPT to sort each as plant or animal source.',hi:'इस हफ़्ते खाए 10 भोजन लिखो, चैटजीपीटी से हर एक को पौधा/जंतु स्रोत में बाँटने को कहो।'}},
+            {tool:'canva-ai', text:{en:'Design a simple poster titled "Where My Food Comes From" with 6 icons.',hi:'"मेरा भोजन कहाँ से आता है" शीर्षक से 6 आइकन वाला सरल पोस्टर बनाओ।'}}
+          ] },
+        { slug:'components-of-food', title:{en:'Components of Food',hi:'भोजन के घटक'}, url:'https://ncert.nic.in/textbook.php?fesc1=2-16',
+          prompts:[
+            {tool:'gemini', text:{en:'Ask Gemini to explain what a "balanced diet" means using foods common in your own home.',hi:'जेमिनाई से पूछो "संतुलित आहार" का मतलब क्या है, अपने घर के आम भोजन के उदाहरण सहित।'}},
+            {tool:'notebooklm', text:{en:'Paste this chapter\u2019s notes and generate 8 revision flashcards on nutrients.',hi:'इस अध्याय के नोट्स डालो, पोषक तत्वों पर 8 रिवीज़न फ़्लैशकार्ड बनवाओ।'}}
+          ] }
+      ] }, social: { label:{en:'Social Science',hi:'सामाजिक विज्ञान'}, emoji:'🏛️', chapters: [
+        { slug:'earth-solar-system', title:{en:'The Earth in the Solar System',hi:'सौरमंडल में पृथ्वी'}, url:'https://ncert.nic.in/textbook.php?fess1=1-9',
+          prompts:[{tool:'canva-ai', text:{en:'Make a simple labelled diagram of the 8 planets in order from the sun.',hi:'सूर्य से क्रम में 8 ग्रहों का सरल लेबल किया चित्र बनाओ।'}}] }
+      ] } },
+      8: { science: { label:{en:'Science',hi:'विज्ञान'}, emoji:'🔬', chapters: [
+        { slug:'crop-production', title:{en:'Crop Production and Management',hi:'फ़सल उत्पादन एवं प्रबंध'}, url:'https://ncert.nic.in/textbook.php?hesc1=1-18',
+          prompts:[
+            {tool:'chatgpt', text:{en:'Ask it to explain the difference between kharif and rabi crops, with 3 examples of each grown near you.',hi:'खरीफ़ और रबी फ़सल में अंतर पूछो, अपने आस-पास उगने वाले 3-3 उदाहरण सहित।'}},
+            {tool:'runway', text:{en:'Plan a short clip showing the steps of crop production, from sowing to harvesting.',hi:'बुवाई से कटाई तक फ़सल उत्पादन के चरण दिखाती छोटी क्लिप की योजना बनाओ।'}}
+          ] },
+        { slug:'cell-structure', title:{en:'Cell — Structure and Functions',hi:'कोशिका — संरचना एवं कार्य'}, url:'https://ncert.nic.in/textbook.php?hesc1=8-18',
+          prompts:[{tool:'teachable-machine', text:{en:'Train a model to recognise 3 hand signs, one per organelle, then explain each organelle using only your hands.',hi:'हर कोशिकांग के लिए एक हाथ का इशारा — 3 सिखाओ, फिर केवल हाथों से हर एक समझाओ।'}}] }
+      ] }, maths: { label:{en:'Mathematics',hi:'गणित'}, emoji:'🔢', chapters: [
+        { slug:'rational-numbers', title:{en:'Rational Numbers',hi:'परिमेय संख्याएँ'}, url:'https://ncert.nic.in/textbook.php?hemh1=1-16',
+          prompts:[{tool:'wolfram-alpha', text:{en:'Solve 5 rational number problems from your textbook exercise yourself first, then check each step against Wolfram Alpha.',hi:'किताब के 5 प्रश्न पहले खुद हल करो, फिर हर चरण वुल्फ्राम अल्फा से जाँचो।'}}] }
+      ] } },
+      9: { science: { label:{en:'Science',hi:'विज्ञान'}, emoji:'🔬', chapters: [
+        { slug:'matter-surroundings', title:{en:'Matter in Our Surroundings',hi:'हमारे आस-पास के पदार्थ'}, url:'https://ncert.nic.in/textbook.php?iesc1=1-15',
+          prompts:[
+            {tool:'chatgpt', text:{en:'Ask for 5 everyday examples of solids turning to liquids or gases, and the temperature at which each happens.',hi:'ठोस के द्रव/गैस में बदलने के 5 रोज़मर्रा उदाहरण और हर एक का तापमान पूछो।'}},
+            {tool:'canva-ai', text:{en:'Design a simple diagram showing the 3 states of matter and the names of the changes between them.',hi:'पदार्थ की 3 अवस्थाएँ और उनके बीच बदलावों के नाम दिखाता सरल चित्र बनाओ।'}}
+          ] }
+      ] }, maths: { label:{en:'Mathematics',hi:'गणित'}, emoji:'🔢', chapters: [
+        { slug:'number-systems', title:{en:'Number Systems',hi:'संख्या पद्धति'}, url:'https://ncert.nic.in/textbook.php?iemh1=1-15',
+          prompts:[{tool:'wolfram-alpha', text:{en:'Solve one irrational-number problem yourself, then verify each step.',hi:'एक अपरिमेय-संख्या प्रश्न स्वयं हल करो, फिर हर चरण सत्यापित करो।'}}] }
+      ] } },
+      10: { science: { label:{en:'Science',hi:'विज्ञान'}, emoji:'🔬', chapters: [
+        { slug:'chemical-reactions', title:{en:'Chemical Reactions and Equations',hi:'रासायनिक अभिक्रियाएँ एवं समीकरण'}, url:'https://ncert.nic.in/textbook.php?jesc1=1-16',
+          prompts:[{tool:'chatgpt', text:{en:'Ask it to explain the 6 reaction types with one kitchen or home example of each.',hi:'6 प्रकार की अभिक्रियाएँ, हर एक का रसोई/घर का एक उदाहरण सहित समझाओ।'}}] }
+      ] } },
+      3: { evs: { label:{en:'Environmental Studies',hi:'पर्यावरण अध्ययन'}, emoji:'🌿', chapters: [
+        { slug:'family-friends-3', title:{en:'Family and Friends',hi:'परिवार और दोस्त'}, url:'https://ncert.nic.in/textbook.php?ceev1=1-8',
+          prompts:[{tool:'chatgpt-junior', text:{en:'Ask it for a short, happy story about helping a family member, then draw your favourite part.',hi:'परिवार के किसी सदस्य की मदद करने की एक छोटी खुशनुमा कहानी माँगो, फिर अपना पसंदीदा हिस्सा बनाओ।'}}] }
+      ] } },
+      5: { evs: { label:{en:'Environmental Studies',hi:'पर्यावरण अध्ययन'}, emoji:'🌿', chapters: [
+        { slug:'super-senses-5', title:{en:'Super Senses',hi:'अद्भुत इंद्रियाँ'}, url:'https://ncert.nic.in/textbook.php?eees1=1-16',
+          prompts:[
+            {tool:'gemini-junior', text:{en:'Ask it how 3 different animals use their senses better than humans do, with one fun fact each.',hi:'3 अलग जानवर अपनी इंद्रियों का इंसानों से बेहतर उपयोग कैसे करते हैं पूछो, हर एक का एक मज़ेदार तथ्य सहित।'}},
+            {tool:'canva-ai', text:{en:'Design a simple poster comparing how a bat, a dog and an eagle sense the world.',hi:'चमगादड़, कुत्ता और चील दुनिया को कैसे महसूस करते हैं — इसकी तुलना करता सरल पोस्टर बनाओ।'}}
+          ] }
+      ] } },
+      7: { science: { label:{en:'Science',hi:'विज्ञान'}, emoji:'🔬', chapters: [
+        { slug:'nutrition-plants', title:{en:'Nutrition in Plants',hi:'पौधों में पोषण'}, url:'https://ncert.nic.in/textbook.php?gesc1=1-18',
+          prompts:[
+            {tool:'chatgpt', text:{en:'Ask it to explain photosynthesis in one paragraph, then ask it to explain the same thing again in exactly 3 simple sentences.',hi:'प्रकाश-संश्लेषण एक पैराग्राफ़ में समझाने को कहो, फिर वही बात ठीक 3 सरल वाक्यों में दोबारा समझाने को कहो।'}},
+            {tool:'canva-ai', text:{en:'Design a labelled diagram of a leaf showing where photosynthesis happens.',hi:'पत्ती का लेबल किया चित्र बनाओ जो दिखाए प्रकाश-संश्लेषण कहाँ होता है।'}}
+          ] },
+        { slug:'weather-climate', title:{en:'Weather, Climate and Adaptations',hi:'मौसम, जलवायु और अनुकूलन'}, url:'https://ncert.nic.in/textbook.php?gesc1=7-18',
+          prompts:[{tool:'gemini', text:{en:'Ask it how one animal near your city has adapted to the local climate, with a source you can check.',hi:'अपने शहर के पास किसी एक जानवर ने स्थानीय जलवायु के अनुसार कैसे खुद को ढाला, स्रोत सहित पूछो।'}}] }
+      ] }, maths: { label:{en:'Mathematics',hi:'गणित'}, emoji:'🔢', chapters: [
+        { slug:'integers-7', title:{en:'Integers',hi:'पूर्णांक'}, url:'https://ncert.nic.in/textbook.php?gemh1=1-15',
+          prompts:[{tool:'wolfram-alpha', text:{en:'Solve 5 integer problems from your textbook yourself first, then check each step.',hi:'किताब के 5 पूर्णांक प्रश्न पहले खुद हल करो, फिर हर चरण जाँचो।'}}] }
+      ] } },
+      11: { physics: { label:{en:'Physics',hi:'भौतिक विज्ञान'}, emoji:'⚛️', chapters: [
+        { slug:'units-measurement', title:{en:'Units and Measurement',hi:'मात्रक एवं मापन'}, url:'https://ncert.nic.in/textbook.php?keph1=1-8',
+          prompts:[{tool:'wolfram-alpha', text:{en:'Practice 3 unit-conversion problems, checking your steps against it.',hi:'3 मात्रक-रूपांतरण प्रश्न अभ्यास करो, अपने चरण इससे जाँचो।'}}] }
+      ] }, chemistry: { label:{en:'Chemistry',hi:'रसायन विज्ञान'}, emoji:'🧪', chapters: [
+        { slug:'basic-concepts-chem', title:{en:'Some Basic Concepts of Chemistry',hi:'रसायन विज्ञान की कुछ मूल अवधारणाएँ'}, url:'https://ncert.nic.in/textbook.php?kech1=1-7',
+          prompts:[{tool:'chatgpt', text:{en:'Ask it to explain the mole concept using a kitchen-quantity analogy (like a dozen eggs), then quiz you on 3 mole calculations.',hi:'रसोई-मात्रा उदाहरण (जैसे एक दर्जन अंडे) से मोल अवधारणा समझाओ, फिर 3 मोल गणना पर सवाल पूछो।'}}] }
+      ] }, maths: { label:{en:'Mathematics',hi:'गणित'}, emoji:'🔢', chapters: [
+        { slug:'sets-11', title:{en:'Sets',hi:'समुच्चय'}, url:'https://ncert.nic.in/textbook.php?kemh1=1-16',
+          prompts:[{tool:'wolfram-alpha', text:{en:'Solve 3 set-theory problems yourself first, then verify with it.',hi:'3 समुच्चय-सिद्धांत प्रश्न पहले खुद हल करो, फिर इससे सत्यापित करो।'}}] }
+      ] }, biology: { label:{en:'Biology',hi:'जीव विज्ञान'}, emoji:'🧬', chapters: [
+        { slug:'living-world', title:{en:'The Living World',hi:'जीव जगत'}, url:'https://ncert.nic.in/textbook.php?kebo1=1-22',
+          prompts:[{tool:'gemini', text:{en:'Ask for 3 examples of how scientists classify a newly discovered species, with sources.',hi:'वैज्ञानिक नई खोजी प्रजाति को कैसे वर्गीकृत करते हैं, 3 उदाहरण स्रोत सहित पूछो।'}}] }
+      ] } },
+      12: { physics: { label:{en:'Physics',hi:'भौतिक विज्ञान'}, emoji:'⚛️', chapters: [
+        { slug:'electric-charges', title:{en:'Electric Charges and Fields',hi:'वैद्युत आवेश तथा क्षेत्र'}, url:'https://ncert.nic.in/textbook.php?leph1=1-8',
+          prompts:[{tool:'notebooklm', text:{en:'Paste your notes on Coulomb\u2019s law and generate 10 practice questions.',hi:'कूलॉम के नियम पर नोट्स डालो, 10 अभ्यास प्रश्न बनवाओ।'}}] }
+      ] }, chemistry: { label:{en:'Chemistry',hi:'रसायन विज्ञान'}, emoji:'🧪', chapters: [
+        { slug:'solutions-12', title:{en:'Solutions',hi:'विलयन'}, url:'https://ncert.nic.in/textbook.php?lech1=1-9',
+          prompts:[{tool:'chatgpt', text:{en:'Ask it to explain molarity vs molality with one worked example of each, then give you 2 practice problems.',hi:'मोलरता बनाम मोललता, एक-एक हल उदाहरण सहित समझाओ, फिर 2 अभ्यास प्रश्न दो।'}}] }
+      ] }, maths: { label:{en:'Mathematics',hi:'गणित'}, emoji:'🔢', chapters: [
+        { slug:'relations-functions-12', title:{en:'Relations and Functions',hi:'संबंध एवं फलन'}, url:'https://ncert.nic.in/textbook.php?lemh1=1-13',
+          prompts:[{tool:'wolfram-alpha', text:{en:'Solve 3 function-composition problems yourself, then verify each step.',hi:'3 फलन-संयोजन प्रश्न खुद हल करो, फिर हर चरण सत्यापित करो।'}}] }
+      ] }, biology: { label:{en:'Biology',hi:'जीव विज्ञान'}, emoji:'🧬', chapters: [
+        { slug:'reproduction-organisms', title:{en:'Reproduction in Organisms',hi:'जीवों में जनन'}, url:'https://ncert.nic.in/textbook.php?lebo1=1-16',
+          prompts:[{tool:'notebooklm', text:{en:'Paste your notes on asexual vs sexual reproduction and generate 10 revision questions.',hi:'अलैंगिक बनाम लैंगिक जनन पर नोट्स डालो, 10 रिवीज़न प्रश्न बनवाओ।'}}] }
+      ] } }
+    }
+  },
+  gseb: {
+    label: { en: 'GSEB (Gujarati Medium)', hi: 'GSEB (ગુજરાતી માધ્યમ)' },
+    emoji: '🦁',
+    official: false,   // sample data — see gsebSampleNote
+    classes: {
+      8: { science: { label:{en:'Science',hi:'વિજ્ઞાન'}, emoji:'🔬', chapters: [
+        { slug:'crop-production-gj', title:{en:'Crop Production and Management',hi:'પાક ઉત્પાદન અને વ્યવસ્થાપન'}, url:'http://gujarat-education.gov.in/',
+          prompts:[{tool:'chatgpt', text:{en:'Ask it, in Gujarati, to explain kharif and rabi crops with local examples from your district.',hi:'ગુજરાતીમાં ખરીફ અને રવી પાક વિશે, તમારા જિલ્લાના ઉદાહરણો સાથે સમજાવવા કહો.'}}] }
+      ] }, maths: { label:{en:'Mathematics',hi:'ગણિત'}, emoji:'🔢', chapters: [
+        { slug:'rational-numbers-gj', title:{en:'Rational Numbers',hi:'સંમેય સંખ્યાઓ'}, url:'http://gujarat-education.gov.in/',
+          prompts:[{tool:'wolfram-alpha', text:{en:'Solve your textbook exercise yourself first, then verify each answer.',hi:'પહેલા જાતે દાખલા ગણો, પછી દરેક જવાબ ચકાસો.'}}] }
+      ] } },
+      10: { science: { label:{en:'Science',hi:'વિજ્ઞાન'}, emoji:'🔬', chapters: [
+        { slug:'chemical-reactions-gj', title:{en:'Chemical Reactions and Equations',hi:'રાસાયણિક પ્રક્રિયાઓ અને સમીકરણો'}, url:'http://gujarat-education.gov.in/',
+          prompts:[{tool:'chatgpt', text:{en:'Ask it, in Gujarati, for one home example of each of the 6 reaction types.',hi:'ગુજરાતીમાં, 6 પ્રકારની પ્રક્રિયાનું એક-એક ઘરેલુ ઉદાહરણ પૂછો.'}}] }
+      ] } }
+    }
+  }
+};
+
+/* ===========================================================================
+   TEACHER — Magic AI Tools (Section 6)
+   Honest by construction: these fill a structured template from the
+   teacher's own inputs, entirely in the browser. No network call, no AI
+   model. See magicNotice (shown on every card) and the README.
+   =========================================================================== */
+const MAGIC_TOOLS = [
+  { key:'lesson-plan', emoji:'📋', n:{en:'Lesson Plan Generator',hi:'पाठ-योजना जनरेटर'},
+    d:{en:'A structured lesson outline from your topic and class.',hi:'आपके विषय और कक्षा से संरचित पाठ रूपरेखा।'},
+    fields:[
+      {k:'topic', label:{en:'Topic / Chapter',hi:'विषय / अध्याय'}, ph:{en:'e.g. Photosynthesis',hi:'जैसे: प्रकाश-संश्लेषण'}},
+      {k:'cls', label:{en:'Class',hi:'कक्षा'}, ph:{en:'e.g. 8',hi:'जैसे: 8'}},
+      {k:'duration', label:{en:'Duration (minutes)',hi:'अवधि (मिनट)'}, ph:{en:'40',hi:'40'}}
+    ],
+    build: (v, L) => [
+      `# ${v.topic || (L?'पाठ योजना':'Lesson Plan')} — ${L?'कक्षा':'Class'} ${v.cls || '__'}`,
+      `### ${L?'अवधि':'Duration'}: ${v.duration || '40'} ${L?'मिनट':'min'}`,
+      ``,
+      `**${L?'उद्देश्य':'Objective'}:** ${L?'विद्यार्थी':'Students will be able to'} explain the key idea of "${v.topic || '___'}" ${L?'में':'in their own words.'}`,
+      ``,
+      `**${L?'वार्म-अप (5 मिनट)':'Warm-up (5 min)'}:** ${L?'एक तेज़ सवाल जो पिछले पाठ से जोड़े।':'One quick question linking back to the previous lesson.'}`,
+      `**${L?'परिचय (10 मिनट)':'Introduction (10 min)'}:** ${L?'बोर्ड पर मुख्य विचार लिखें, उदाहरण के साथ।':'Introduce the core idea on the board, with one relatable example.'}`,
+      `**${L?'मुख्य गतिविधि (20 मिनट)':'Main activity (20 min)'}:** ${L?'छोटे समूहों में विद्यार्थी विषय को एक एआई टूल से समझें और एक कार्यशील उदाहरण बनाएँ।':'Students explore the topic in small groups using an AI tool from the portal and produce one working example.'}`,
+      `**${L?'समापन (5 मिनट)':'Wrap-up (5 min)'}:** ${L?'2 विद्यार्थी अपना उदाहरण साझा करें।':'2 students share their example with the class.'}`,
+      ``,
+      `**${L?'मूल्यांकन':'Assessment'}:** ${L?'एक-वाक्य निकास टिकट — विद्यार्थी आज जो सीखा वह लिखें।':'One-sentence exit ticket — students write what they learned today.'}`
+    ].join('\n') },
+  { key:'worksheet', emoji:'📝', n:{en:'Worksheet / Quiz Generator',hi:'वर्कशीट / क्विज़ जनरेटर'},
+    d:{en:'A short practice worksheet with mixed question types.',hi:'मिश्रित प्रश्न-प्रकार वाली छोटी अभ्यास वर्कशीट।'},
+    fields:[
+      {k:'topic', label:{en:'Topic',hi:'विषय'}, ph:{en:'e.g. Fractions',hi:'जैसे: भिन्न'}},
+      {k:'cls', label:{en:'Class',hi:'कक्षा'}, ph:{en:'e.g. 6',hi:'जैसे: 6'}},
+      {k:'count', label:{en:'Number of questions',hi:'प्रश्नों की संख्या'}, ph:{en:'8',hi:'8'}}
+    ],
+    build: (v, L) => {
+      const n = Math.max(3, Math.min(15, parseInt(v.count) || 8));
+      const lines = [`# ${v.topic || (L?'वर्कशीट':'Worksheet')} — ${L?'कक्षा':'Class'} ${v.cls || '__'}`, ``];
+      for (let i = 1; i <= n; i++) {
+        lines.push(`${i}. ${L ? `${v.topic||'विषय'} से जुड़ा एक प्रश्न लिखें` : `[Write a question about ${v.topic||'the topic'} here]`} ${i % 3 === 0 ? (L?'(2 अंक)':'(2 marks)') : (L?'(1 अंक)':'(1 mark)')}`);
+      }
+      lines.push('', `**${L?'कुल अंक':'Total marks'}:** ${n + Math.floor(n/3)}`);
+      return lines.join('\n');
+    } },
+  { key:'report-comment', emoji:'💬', n:{en:'Report-Comment Generator',hi:'रिपोर्ट-टिप्पणी जनरेटर'},
+    d:{en:'A starting draft for a student report card comment.',hi:'रिपोर्ट कार्ड टिप्पणी के लिए शुरुआती मसौदा।'},
+    fields:[
+      {k:'name', label:{en:'Student name',hi:'विद्यार्थी का नाम'}, ph:{en:'e.g. Aarav',hi:'जैसे: आरव'}},
+      {k:'strength', label:{en:'One strength',hi:'एक ताक़त'}, ph:{en:'e.g. asks great questions',hi:'जैसे: अच्छे सवाल पूछता है'}},
+      {k:'growth', label:{en:'One growth area',hi:'एक सुधार क्षेत्र'}, ph:{en:'e.g. finishing work on time',hi:'जैसे: समय पर काम पूरा करना'}}
+    ],
+    build: (v, L) => L
+      ? `${v.name||'विद्यार्थी'} ने इस सत्र में अच्छी प्रगति दिखाई है। विशेष रूप से ${v.strength||'सक्रिय भागीदारी'} में उल्लेखनीय — यह क्लास चर्चा को समृद्ध करता है। अगले सत्र में ${v.growth||'निरंतरता'} पर ध्यान देने से समग्र प्रदर्शन और बेहतर होगा। कुल मिलाकर, एक उत्साहजनक और सकारात्मक दृष्टिकोण।`
+      : `${v.name||'The student'} has shown encouraging progress this term. A particular strength is ${v.strength||'active participation'}, which adds real value to class discussion. Focusing on ${v.growth||'consistency'} next term would help translate that same energy into steadier results. Overall, a positive and engaged attitude to learning.` },
+  { key:'rubric', emoji:'📐', n:{en:'Rubric Generator',hi:'रूब्रिक जनरेटर'},
+    d:{en:'A 4-level scoring rubric for any assignment.',hi:'किसी भी असाइनमेंट के लिए 4-स्तरीय अंकन रूब्रिक।'},
+    fields:[
+      {k:'assignment', label:{en:'Assignment name',hi:'असाइनमेंट का नाम'}, ph:{en:'e.g. Science project poster',hi:'जैसे: विज्ञान प्रोजेक्ट पोस्टर'}},
+      {k:'criteria', label:{en:'Criteria (comma-separated)',hi:'मानदंड (अल्पविराम से अलग)'}, ph:{en:'Content, Design, Understanding',hi:'सामग्री, डिज़ाइन, समझ'}}
+    ],
+    build: (v, L) => {
+      const crit = (v.criteria || (L?'सामग्री, प्रस्तुति, समझ':'Content, Presentation, Understanding')).split(',').map(s=>s.trim()).filter(Boolean);
+      const levels = L ? ['उत्कृष्ट (4)','अच्छा (3)','संतोषजनक (2)','सुधार चाहिए (1)'] : ['Excellent (4)','Good (3)','Satisfactory (2)','Needs work (1)'];
+      const lines = [`# ${L?'रूब्रिक':'Rubric'}: ${v.assignment || (L?'असाइनमेंट':'Assignment')}`, ``];
+      crit.forEach(c => {
+        lines.push(`### ${c}`);
+        levels.forEach(lv => lines.push(`- **${lv}:** ${L?'स्पष्ट, विशिष्ट अपेक्षा यहाँ लिखें।':'Write the clear, specific expectation for this level here.'}`));
+        lines.push('');
+      });
+      return lines.join('\n');
+    } },
+  /* Deliberately the lightest of the five: one topic, one class, one marks
+     total, in the same single-click pattern as the other four. It reuses
+     distributeSections — the exact section-and-marks logic the full Question
+     Paper Setter is built and tested on — rather than a second, looser
+     implementation, so a quick paper and a real exam paper never disagree
+     about what a "20% weight, 3-mark section" actually means. What it
+     produces on purpose is structure and marks, honestly totalled; what it
+     never produces is real question text, matching every other card here. */
+  { key:'quickpaper', emoji:'🗒️', n:{en:'Quick Question Paper',hi:'त्वरित प्रश्न पत्र'},
+    d:{en:'A properly sectioned paper — MCQ, short and long answer — in one shot.',hi:'एक ही बार में सही खंडों वाला पत्र — बहुविकल्पीय, लघु और दीर्घ उत्तर।'},
+    fields:[
+      {k:'topic', label:{en:'Topic / Chapter',hi:'विषय / अध्याय'}, ph:{en:'e.g. Life Processes',hi:'जैसे: जैविक प्रक्रियाएँ'}},
+      {k:'cls', label:{en:'Class',hi:'कक्षा'}, ph:{en:'e.g. 10',hi:'जैसे: 10'}},
+      {k:'marks', label:{en:'Total marks',hi:'कुल अंक'}, ph:{en:'25',hi:'25'}}
+    ],
+    build: (v, L) => {
+      const requested = Math.min(100, Math.max(10, parseInt(v.marks, 10) || 25));
+      const sections = distributeSections(requested, 'four');
+      const achieved = sections.reduce((a, s) => a + s.marks, 0);
+      const topic = v.topic || (L ? 'यह विषय' : 'this topic');
+      const lines = [
+        `# ${L ? 'प्रश्न पत्र' : 'Question Paper'} — ${v.topic || (L ? 'विषय' : 'Topic')}`,
+        `${L ? 'कक्षा' : 'Class'} ${v.cls || '__'} · ${L ? 'कुल अंक' : 'Total marks'}: ${achieved}`,
+        achieved !== requested ? (L ? `(${requested} से पूर्णांकित)` : `(rounded from ${requested})`) : '',
+        ''
+      ].filter(Boolean);
+      let qn = 1;
+      sections.forEach(sec => {
+        lines.push(`### ${L ? 'खंड' : 'Section'} ${sec.key} — ${L ? sec.n.hi : sec.n.en} (${sec.count} × ${sec.marksEach} = ${sec.marks})`);
+        for (let i = 0; i < sec.count; i++) {
+          const markWord = sec.marksEach === 1 ? (L ? 'अंक' : 'mark') : (L ? 'अंक' : 'marks');
+          lines.push(`${qn++}. ${L ? `${topic} से जुड़ा एक प्रश्न लिखें` : `[Write a question about ${topic} here]`} (${sec.marksEach} ${markWord})`);
+        }
+        lines.push('');
+      });
+      lines.push(L
+        ? 'पूर्ण परीक्षा-तैयार पत्र, वास्तविक अध्याय और उत्तर कुंजी सहित चाहिए? टीचर मेनू में "प्रश्न पत्र" खोलें।'
+        : 'Need a full exam-ready paper tied to real chapters, with an answer key? Open "Question Paper" from the teacher menu.');
+      return lines.join('\n');
+    } }
+];
+
+/* ===========================================================================
+   TEACHER — Upskilling track (Section 6). Reuses the exact XP/quiz engine
+   already built for students, just aimed at educators.
+   =========================================================================== */
+const UPSKILL_MODULES = [
+  { key:'prompting-basics', emoji:'✍️', n:{en:'Prompting Fundamentals for Educators',hi:'शिक्षकों के लिए प्रॉम्प्टिंग मूल बातें'},
+    d:{en:'The one skill that makes every other AI tool work better.',hi:'वह एक कौशल जो हर एआई टूल को बेहतर बनाता है।'},
+    quiz:[
+      { q:{en:'The single biggest lever on answer quality is:',hi:'उत्तर की गुणवत्ता पर सबसे बड़ा असर किसका है:'},
+        o:[{en:'Which AI tool you use',hi:'कौन-सा एआई टूल उपयोग करते हैं'},{en:'How specific and contextual your prompt is',hi:'आपका प्रॉम्प्ट कितना विशिष्ट और संदर्भ-सहित है'},{en:'The time of day you ask',hi:'दिन का कौन-सा समय है'},{en:'Typing in all capitals',hi:'सभी बड़े अक्षरों में टाइप करना'}], a:1,
+        why:{en:'Audience, format, length and constraint do more for output quality than tool choice.',hi:'श्रोता, प्रारूप, लंबाई और सीमा — टूल चुनाव से ज़्यादा असर डालते हैं।'} },
+      { q:{en:'The fastest way to fix a bad AI output for a lesson resource is to:',hi:'पाठ-सामग्री के लिए खराब एआई उत्तर सुधारने का सबसे तेज़ तरीका:'},
+        o:[{en:'Start a brand-new chat from scratch',hi:'बिल्कुल नई चैट शुरू करें'},{en:'Give a specific correction in the same conversation',hi:'उसी बातचीत में विशिष्ट सुधार दें'},{en:'Switch tools',hi:'टूल बदलें'},{en:'Accept it as-is to save time',hi:'समय बचाने के लिए वैसे ही स्वीकार करें'}], a:1,
+        why:{en:'Iterating in-context is faster and usually higher quality than restarting.',hi:'उसी संदर्भ में सुधारना दोबारा शुरू करने से तेज़ और बेहतर है।'} }
+    ] },
+  { key:'lesson-planning-ai', emoji:'🗂️', n:{en:'Using AI for Lesson Planning',hi:'पाठ-योजना के लिए एआई का उपयोग'},
+    d:{en:'Where AI genuinely saves time — and where it does not.',hi:'जहाँ एआई वाकई समय बचाता है — और जहाँ नहीं।'},
+    quiz:[
+      { q:{en:'AI-drafted lesson plans should be treated as:',hi:'एआई-लिखित पाठ-योजना को माना जाना चाहिए:'},
+        o:[{en:'Final, ready to teach from unchanged',hi:'अंतिम, बिना बदले पढ़ाने योग्य'},{en:'A fast first draft you review and adapt to your class',hi:'तेज़ पहला मसौदा जिसे आप अपनी कक्षा के अनुसार ढालें'},{en:'Not useful at all',hi:'बिल्कुल भी उपयोगी नहीं'},{en:'Something to give directly to students',hi:'सीधे विद्यार्थियों को देने की चीज़'}], a:1,
+        why:{en:'It compresses the blank-page problem, not your professional judgement about your own students.',hi:'यह खाली-पन्ने की समस्या कम करता है, आपके विद्यार्थियों के बारे में आपकी पेशेवर समझ की जगह नहीं लेता।'} }
+    ] },
+  { key:'ai-ethics-classroom', emoji:'🛡️', n:{en:'AI Ethics in the Classroom',hi:'कक्षा में एआई नैतिकता'},
+    d:{en:'What to teach students about using AI honestly.',hi:'एआई के ईमानदार उपयोग के बारे में विद्यार्थियों को क्या सिखाएँ।'},
+    quiz:[
+      { q:{en:'The clearest sign a student is using AI well, not just outsourcing work, is that they can:',hi:'यह साफ़ संकेत कि विद्यार्थी एआई का सही उपयोग कर रहा है, काम सौंप नहीं रहा:'},
+        o:[{en:'Submit faster',hi:'तेज़ जमा करना'},{en:'Explain and defend the output in their own words',hi:'अपने शब्दों में उत्तर समझा और तर्क दे सकें'},{en:'Use a paid tool',hi:'भुगतान वाला टूल उपयोग करना'},{en:'Avoid mentioning AI was used',hi:'एआई उपयोग का ज़िक्र न करना'}], a:1,
+        why:{en:'If they cannot explain it, the learning did not happen — regardless of output quality.',hi:'अगर वे समझा नहीं सकते, तो सीखना नहीं हुआ — उत्तर कितना भी अच्छा क्यों न हो।'} }
+    ] }
+];
+
+/* ===========================================================================
+   PRINCIPAL — mock school data (Sections 5 & 7). This is illustrative sample
+   data throughout, clearly labelled — see protoNoticeBody. Real figures need
+   a backend event log (page views, tool opens, quiz completions, session
+   times) which this static frontend has nowhere to durably store per user.
+   =========================================================================== */
+const SCHOOL_DATA = {
+  name: 'Delhi Public School, Pantnagar',
+  term: 'Term 2, 2026–27',
+  classes: [
+    { name:'Class 6-A', teacher:'Ms. Sharma', students:32, avgXp:1840, active:28, chaptersDone:64, trend:[40,52,48,61,58,70,64] },
+    { name:'Class 7-B', teacher:'Mr. Verma', students:30, avgXp:2210, active:26, chaptersDone:81, trend:[45,55,60,58,66,72,81] },
+    { name:'Class 8-A', teacher:'Ms. Patel', students:35, avgXp:1650, active:22, chaptersDone:49, trend:[38,40,44,41,45,47,49] },
+    { name:'Class 9-B', teacher:'Mr. Kumar', students:28, avgXp:2890, active:25, chaptersDone:102, trend:[60,68,75,80,88,95,102] },
+    { name:'Class 11-S', teacher:'Ms. Joshi', students:24, avgXp:3420, active:20, chaptersDone:58, trend:[20,28,33,40,45,52,58] },
+    { name:'Class 12-S', teacher:'Mr. Singh', students:22, avgXp:3980, active:18, chaptersDone:71, trend:[30,38,45,52,58,64,71] }
+  ],
+  teachers: [
+    { name:'Ms. Sharma', modulesDone:3, of:3, magicUses:14 },
+    { name:'Mr. Verma', modulesDone:2, of:3, magicUses:9 },
+    { name:'Ms. Patel', modulesDone:1, of:3, magicUses:4 },
+    { name:'Mr. Kumar', modulesDone:3, of:3, magicUses:21 },
+    { name:'Ms. Joshi', modulesDone:0, of:3, magicUses:2 },
+    { name:'Mr. Singh', modulesDone:2, of:3, magicUses:11 }
+  ]
+};
+
+/* Curriculum coverage — per class, per subject: how many chapters the
+   syllabus expects this term vs how many the class has actually worked
+   through in the app. Principals think in coverage and gaps, so "done vs
+   target" is the unit that matters, not raw activity counts.
+   Shaped deliberately as (class -> subject -> done/target) because that is
+   exactly the shape a real backend query would return once chapter-open
+   events are being logged per student — so this view won't need rewriting,
+   only re-sourcing. */
+const COVERAGE = [
+  { cls:'Class 6-A', subjects:[
+    { name:'Science', done:8, target:10 }, { name:'Mathematics', done:7, target:10 },
+    { name:'Social Science', done:5, target:9 }, { name:'English', done:6, target:8 } ] },
+  { cls:'Class 7-B', subjects:[
+    { name:'Science', done:9, target:10 }, { name:'Mathematics', done:8, target:10 },
+    { name:'Social Science', done:8, target:9 }, { name:'English', done:7, target:8 } ] },
+  { cls:'Class 8-A', subjects:[
+    { name:'Science', done:5, target:10 }, { name:'Mathematics', done:4, target:10 },
+    { name:'Social Science', done:3, target:9 }, { name:'English', done:5, target:8 } ] },
+  { cls:'Class 9-B', subjects:[
+    { name:'Science', done:10, target:10 }, { name:'Mathematics', done:9, target:10 },
+    { name:'Social Science', done:8, target:9 }, { name:'English', done:8, target:8 } ] },
+  { cls:'Class 11-S', subjects:[
+    { name:'Physics', done:6, target:9 }, { name:'Chemistry', done:5, target:9 },
+    { name:'Mathematics', done:7, target:10 }, { name:'Biology', done:4, target:9 } ] },
+  { cls:'Class 12-S', subjects:[
+    { name:'Physics', done:7, target:9 }, { name:'Chemistry', done:7, target:9 },
+    { name:'Mathematics', done:8, target:10 }, { name:'Biology', done:6, target:9 } ] }
+];
+
+/* Sample students for the parent-summary report. A real build reads these
+   from the accounts table; the fields here are exactly the ones the
+   existing student state already tracks (xp, streak, badges, tools,
+   chapters), so the report maps 1:1 onto real data later. */
+const SAMPLE_STUDENTS = [
+  { name:'Aarav Kulkarni', cls:'Class 6-A', xp:2140, streak:12, badges:7, tools:9, chapters:14, strength:'asking follow-up questions', growth:'finishing quizzes in one sitting',
+    creations:[{ title:'Water cycle diagram', tool:'Canva AI', note:'Made for a Science homework task' }] },
+  { name:'Priya Nair', cls:'Class 6-A', xp:2610, streak:21, badges:9, tools:11, chapters:17, strength:'consistency — 21-day streak', growth:'trying tools outside Science',
+    creations:[{ title:'5-slide presentation on Photosynthesis', tool:'Gamma' }, { title:'Solar system poster', tool:'Canva AI' }] },
+  { name:'Dev Raman', cls:'Class 7-B', xp:2090, streak:3, badges:6, tools:8, chapters:12, strength:'creative image prompts', growth:'building a daily habit',
+    creations:[{ title:'Comic strip about the water cycle', tool:'Canva AI' }] },
+  { name:'Zara Ahmed', cls:'Class 7-B', xp:4180, streak:18, badges:12, tools:15, chapters:22, strength:'independent exploration', growth:'helping classmates',
+    creations:[{ title:'Mind map — Nutrition in Plants', tool:'NotebookLM' }, { title:'Quiz set for revision', tool:'Quizlet AI' }] },
+  { name:'Ishita Mehta', cls:'Class 8-A', xp:1740, streak:5, badges:5, tools:7, chapters:9, strength:'strong quiz accuracy', growth:'exploring more chapters',
+    creations:[{ title:'Crop production flowchart', tool:'Canva AI' }] },
+  { name:'Kabir Singh', cls:'Class 9-B', xp:1180, streak:0, badges:3, tools:5, chapters:6, strength:'good questions in class', growth:'logging in more regularly',
+    creations:[] }
+];
+
+/* ===========================================================================
+   FAMILY LEARNING CONTENT — for the Parent role
+   ---------------------------------------------------------------------------
+   Two static, curated lists, deliberately not personalised or behaviourally
+   tracked. "Try Together" gives a parent something real to do with their
+   child in five minutes; the mini-bites answer the questions a parent is
+   actually likely to have about what their child is being taught to do.
+   Both follow the same rule every prompt template in this app follows:
+   honest wording, no invented AI output, no claim about what a specific
+   tool will say back.
+   =========================================================================== */
+
+const FAMILY_ACTIVITIES = [
+  { emoji: '🌙', title: { en: 'Explore moon craters together', hi: 'साथ में चाँद के गड्ढे खोजें' },
+    body: { en: 'Ask an AI tool like Gemini or ChatGPT to explain how craters form, then look at real photos of the Moon together and try to spot some.', hi: 'जेमिनाई या चैटजीपीटी जैसे टूल से पूछें कि गड्ढे कैसे बनते हैं, फिर साथ में चाँद की असली तस्वीरें देखकर कुछ पहचानने की कोशिश करें।' } },
+  { emoji: '🏙️', title: { en: 'Your city, 3 trivia questions', hi: 'आपका शहर, 3 रोचक सवाल' },
+    body: { en: 'Ask an AI tool to generate 3 trivia questions about the history of your city or town, and take turns answering at dinner.', hi: 'अपने शहर के इतिहास पर 3 रोचक सवाल बनवाएँ और खाने की मेज़ पर बारी-बारी जवाब दें।' } },
+  { emoji: '🍲', title: { en: 'Trace a family recipe', hi: 'पारिवारिक नुस्खे की जड़ें खोजें' },
+    body: { en: 'Ask an AI tool where a dish your family cooks often originally comes from, and compare its answer with what a grandparent remembers.', hi: 'आपके घर में अक्सर बनने वाले किसी व्यंजन की उत्पत्ति के बारे में पूछें, फिर दादा-दादी की याद से मिलाकर देखें।' } },
+  { emoji: '🌦️', title: { en: 'Why is the sky that colour today?', hi: 'आज आसमान का रंग ऐसा क्यों है?' },
+    body: { en: 'Look outside together, then ask an AI tool to explain today\u2019s sky in simple terms — sunset colours, clouds, or why it looks hazy.', hi: 'बाहर साथ देखें, फिर किसी एआई टूल से आज के आसमान के बारे में सरल शब्दों में पूछें — सूर्यास्त के रंग, बादल, या धुंध क्यों है।' } },
+  { emoji: '🧩', title: { en: 'Riddle relay', hi: 'पहेली की बारी' },
+    body: { en: 'Ask an AI tool for 3 riddles suited to your child\u2019s age, and take turns trying to solve each other\u2019s.', hi: 'बच्चे की उम्र के हिसाब से 3 पहेलियाँ बनवाएँ और बारी-बारी हल करें।' } }
+];
+
+const PARENT_MINIBITES = [
+  { key: 'prompting', emoji: '💬', q: { en: 'What is "prompting"?', hi: '"प्रॉम्प्टिंग" क्या है?' },
+    a: { en: 'A prompt is the instruction you give an AI tool. Prompting is the skill of writing that instruction clearly — saying what you want, in what format, and for what level — so the answer is actually useful. It is closer to asking a good question than to typing a search term.', hi: 'प्रॉम्प्ट वह निर्देश है जो आप एआई टूल को देते हैं। प्रॉम्प्टिंग इस निर्देश को स्पष्ट रूप से लिखने का कौशल है — क्या चाहिए, किस रूप में, और किस स्तर पर — ताकि जवाब सच में काम का हो। यह खोज-शब्द टाइप करने से ज़्यादा एक अच्छा सवाल पूछने जैसा है।' } },
+  { key: 'hallucination', emoji: '🌀', q: { en: 'What is an "AI hallucination"?', hi: '"एआई हैलुसिनेशन" क्या है?' },
+    a: { en: 'AI tools sometimes state something false with complete confidence — a wrong date, a made-up fact, a source that does not exist. That is called a hallucination. It is not rare, and it is not a sign the tool is broken; it is a normal limitation of how these tools work, which is exactly why we teach students to check important facts elsewhere.', hi: 'एआई टूल कभी-कभी पूरे भरोसे से कोई गलत बात कह देते हैं — गलत तारीख़, बनाया हुआ तथ्य, या ऐसा स्रोत जो मौजूद ही नहीं। इसे हैलुसिनेशन कहते हैं। यह दुर्लभ नहीं है और टूल के खराब होने का निशान भी नहीं — यह इन टूलों के काम करने का एक सामान्य सीमा-बिंदु है, इसीलिए हम बच्चों को ज़रूरी तथ्य कहीं और जाँचना सिखाते हैं।' } },
+  { key: 'verify', emoji: '🔍', q: { en: 'Why do you teach verification instead of just trusting the answer?', hi: 'सीधे जवाब पर भरोसा करने की बजाय जाँच क्यों सिखाते हैं?' },
+    a: { en: 'Because it is the single most useful habit for using AI well, at any age. We ask students to check an AI\u2019s answer against their textbook or a trusted site before treating it as fact — the same way you would not accept the first answer from a stranger without a second opinion on something that mattered.', hi: 'क्योंकि यह किसी भी उम्र में एआई का सही उपयोग करने की सबसे उपयोगी आदत है। हम बच्चों से कहते हैं कि किसी एआई के जवाब को सच मानने से पहले उसे किताब या भरोसेमंद स्रोत से जाँच लें — ठीक वैसे ही जैसे किसी अजनबी की पहली बात पर बिना दूसरी राय लिए भरोसा नहीं करते।' } },
+  { key: 'not-cheating', emoji: '📝', q: { en: 'Is using AI for homework the same as cheating?', hi: 'होमवर्क में एआई इस्तेमाल करना नक़ल जैसा है?' },
+    a: { en: 'Not the way it is taught here. Every activity in this app is built around using an AI tool to explore or check understanding, then producing the actual answer, explanation, or creation yourself. Copying an AI\u2019s output word for word and submitting it defeats the point — and is a conversation worth having at home, the same way you would about any shortcut.', hi: 'जिस तरह यहाँ सिखाया जाता है, वैसे नहीं। इस ऐप की हर गतिविधि एआई टूल से समझ बढ़ाने या जाँचने के लिए बनी है, जिसके बाद असली जवाब, व्याख्या या रचना बच्चा खुद बनाता है। एआई का जवाब जस का तस लिखकर जमा करना पूरी बात को बेकार कर देता है — और यह घर पर बात करने लायक विषय है, जैसे किसी भी शॉर्टकट के बारे में होती है।' } },
+  { key: 'safety-today', emoji: '🧭', q: { en: 'Is my child\u2019s AI use being actively monitored right now?', hi: 'क्या अभी मेरे बच्चे के एआई उपयोग पर सक्रिय निगरानी है?' },
+    a: { en: 'Right now, no — and we would rather tell you that plainly than show you a dashboard that suggests otherwise. Today, safety comes from structure: students reach AI tools through a chapter their teacher has set, using prompts written for that topic, with a teacher in the room. Technical monitoring of what a student actually types into an external AI tool is a bigger piece of engineering work, still ahead of us, not something already running quietly in the background.', hi: 'अभी नहीं — और हम आपको यह साफ़-साफ़ बताना बेहतर समझते हैं, बजाय ऐसा डैशबोर्ड दिखाने के जो कुछ और संकेत दे। आज सुरक्षा संरचना से आती है: छात्र एआई टूल तक शिक्षक द्वारा तय अध्याय के ज़रिए पहुँचते हैं, उसी विषय के लिए बने प्रॉम्प्ट के साथ, और शिक्षक कक्षा में मौजूद रहते हैं। बच्चा किसी बाहरी एआई टूल में असल में क्या टाइप करता है, इसकी तकनीकी निगरानी अभी आगे का काम है, न कि पहले से चुपचाप चल रही कोई व्यवस्था।' } }
+];
+
+
+
+const FLAGS = [
+  { sev:'med', student:'Dev R.', cls:'Class 7-B', reason:{en:'Prompt drifted off the assigned chapter topic 3 times in one session',hi:'एक सत्र में 3 बार असाइन किए अध्याय-विषय से प्रॉम्प्ट भटका'}, time:'2 hours ago' },
+  { sev:'low', student:'Kabir S.', cls:'Class 9-B', reason:{en:'Opened a tool without selecting a chapter first',hi:'अध्याय चुने बिना टूल खोला'}, time:'Yesterday' },
+  { sev:'high', student:'Ishita M.', cls:'Class 8-A', reason:{en:'Attempted to paste personal contact details into a prompt',hi:'प्रॉम्प्ट में निजी संपर्क विवरण डालने की कोशिश'}, time:'2 days ago' }
+];
+
+function loadFlagReviewState() {
+  try { return JSON.parse(localStorage.getItem('voldebug.flags.v1') || '{}'); } catch { return {}; }
+}
+function saveFlagReviewState(o) {
+  try { localStorage.setItem('voldebug.flags.v1', JSON.stringify(o)); } catch {}
+}
+
+/* --------------------------------------------------------------- utilities */
+
+const $ = sel => document.querySelector(sel);
+const el = (tag, cls, html) => { const n = document.createElement(tag); if (cls) n.className = cls; if (html != null) n.innerHTML = html; return n; };
+const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const reduced = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+/* Storage is wrapped because this file also gets opened straight from disk
+   and inside sandboxed preview frames, where localStorage throws instead of
+   returning null. A demo that crashes on load is worse than one that forgets. */
+const store = {
+  read() {
+    try {
+      const raw = localStorage.getItem('voldebug.v2');
+      return raw ? { ...DEFAULTS, ...JSON.parse(raw) } : { ...DEFAULTS };
+    } catch { return { ...DEFAULTS }; }
+  },
+  write(s) {
+    try { localStorage.setItem('voldebug.v2', JSON.stringify(s)); } catch { /* memory only */ }
+  },
+  clear() { try { localStorage.removeItem('voldebug.v2'); } catch {} }
+};
+
+let S = store.read();
+const save = () => store.write(S);
+const t = k => (T[S.locale] && T[S.locale][k]) || T.en[k] || k;
+const L = o => (o && (o[S.locale] ?? o.en)) ?? '';
+
+/* ===========================================================================
+   CLOUD SYNC — the only network layer in this file
+   ---------------------------------------------------------------------------
+   Everything below is additive and optional. A signed-out student ("guest")
+   never touches the network at all: pushEvent() returns immediately without a
+   token, nothing is queued, and every call path is wrapped so a dead backend,
+   a blocked localStorage or an aeroplane-mode phone can only ever be a no-op.
+   The offline app keeps behaving exactly as it did before this section
+   existed — that is the requirement, not a nice-to-have: most of these
+   students are on shared, patchy connections.
+
+   Once a student does sign in, the server becomes the source of truth for XP,
+   badges and streaks — it is the only place that can stop a determined
+   student from simply editing localStorage. This layer's whole job is to keep
+   the two in step: queue what happened locally, send it in batches, and adopt
+   whatever profile comes back. Local XP still animates instantly (a student
+   should never wait on a round-trip to see their reward); the server's number
+   quietly replaces it a moment later.
+   =========================================================================== */
+
+const API_BASE = '/v1';
+const TOKEN_KEY = 'voldebug.token.v1';
+const USER_KEY = 'voldebug.user.v1';
+const QUEUE_KEY = 'voldebug.syncq.v1';
+const BACKFILL_KEY = 'voldebug.backfilled.v1';
+
+const QUEUE_MAX = 100;         // the queue shares localStorage with progress — progress wins
+const EVENTS_PER_CALL = 20;    // server contract limit
+const API_TIMEOUT_MS = 10000;
+const FLUSH_DEBOUNCE_MS = 1500;
+
+const lsGet = k => { try { return localStorage.getItem(k); } catch { return null; } };
+const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch {} };
+const lsDel = k => { try { localStorage.removeItem(k); } catch {} };
+
+const authToken = () => lsGet(TOKEN_KEY) || '';
+const signedIn = () => !!authToken();
+function authUser() { try { return JSON.parse(lsGet(USER_KEY) || 'null') || null; } catch { return null; } }
+
+/* Single fetch wrapper. Times out rather than hanging a queue flush forever
+   on a captive-portal wifi that accepts the connection and never answers. */
+async function api(path, opts) {
+  const o = opts || {};
+  const useAuth = o.auth !== false;
+  const token = useAuth ? authToken() : '';
+  const ctrl = typeof AbortController === 'function' ? new AbortController() : null;
+  const timer = ctrl ? setTimeout(() => { try { ctrl.abort(); } catch {} }, API_TIMEOUT_MS) : null;
+  try {
+    const headers = { 'Accept': 'application/json' };
+    if (o.body != null) headers['Content-Type'] = 'application/json';
+    if (token) headers['Authorization'] = 'Bearer ' + token;
+    const res = await fetch(API_BASE + path, {
+      method: o.method || 'GET',
+      headers,
+      body: o.body == null ? undefined : JSON.stringify(o.body),
+      credentials: 'same-origin',
+      signal: ctrl ? ctrl.signal : undefined
+    });
+    let payload = null;
+    try { payload = await res.json(); } catch {}
+    // An expired or revoked token is the one failure the student must be told
+    // about — silently dropping every sync afterwards would look like the app
+    // was saving when it was not.
+    if (res.status === 401 && token) forceSignOut(true);
+    if (!res.ok) {
+      const err = new Error((payload && payload.error && payload.error.message) || ('HTTP ' + res.status));
+      err.status = res.status;
+      err.code = (payload && payload.error && payload.error.code) || '';
+      throw err;
+    }
+    return payload || { data: null };
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+/* Signing out drops the token and anything still queued for the server, and
+   deliberately leaves S alone: the student's progress belongs to the device
+   too, and wiping it here would punish someone for logging out. */
+function forceSignOut(announce) {
+  lsDel(TOKEN_KEY); lsDel(USER_KEY); lsDel(QUEUE_KEY);
+  clearTimeout(flushTimer);
+  if (announce) toast(t('cloudSignedOutMsg'));
+  try { if (S.onboarded && currentRoute() === 'profile') render(); } catch {}
+}
+
+/* ------------------------------------------------------------ event queue */
+
+function readQueue() {
+  try {
+    const arr = JSON.parse(lsGet(QUEUE_KEY) || '[]');
+    return Array.isArray(arr) ? arr : [];
+  } catch { return []; }
+}
+function writeQueue(q) { lsSet(QUEUE_KEY, JSON.stringify(q.slice(-QUEUE_MAX))); }
+
+let flushTimer = null;
+let flushing = false;
+
+/* Fire-and-forget. Never awaited by a click handler, never blocks a render. */
+function pushEvent(kind, payload) {
+  try {
+    if (!signedIn()) return;          // guest: not queued at all, so nothing can pile up
+    const q = readQueue();
+    q.push({ kind, payload: payload || {}, ts: Date.now() });
+    writeQueue(q);
+    clearTimeout(flushTimer);
+    flushTimer = setTimeout(() => { flushQueue(); }, FLUSH_DEBOUNCE_MS);
+  } catch {}
+}
+
+async function flushQueue() {
+  if (flushing || !signedIn()) return;
+  if (navigator.onLine === false) return;   // the 'online' listener will call back
+  flushing = true;
+  try {
+    // Bounded: a localStorage that silently refuses writes would otherwise
+    // turn "drain the queue" into an endless request loop.
+    for (let guard = 0; guard < 12; guard++) {
+      if (!signedIn()) break;
+      const pending = readQueue();
+      if (!pending.length) break;
+      const batch = pending.slice(0, EVENTS_PER_CALL);
+      let out = null;
+      try {
+        out = await api('/journey/events', {
+          method: 'POST',
+          body: { events: batch.map(e => ({ kind: e.kind, payload: e.payload || {} })) }
+        });
+      } catch { break; }   // offline or server trouble: keep everything, retry later
+      // Re-read rather than reuse `pending`: more events may have been queued
+      // while this batch was in flight, and they must not be dropped.
+      writeQueue(readQueue().slice(batch.length));
+      adoptProfile(out && out.data && out.data.profile);
+    }
+  } catch {} finally { flushing = false; }
+}
+
+/* The server's profile replaces the local one wherever it has an opinion.
+   New badges in the response are adopted silently: the local badge check
+   already ran its takeover animation when the student earned it, and
+   celebrating the same badge twice reads as a bug. */
+function adoptProfile(p) {
+  if (!p || typeof p !== 'object') return false;
+  try {
+    if (typeof p.xp === 'number') S.xp = p.xp;
+    if (typeof p.streak === 'number') S.streak = p.streak;
+    if (typeof p.longestStreak === 'number') S.best = p.longestStreak;
+    if (typeof p.questsDone === 'number') S.quests = p.questsDone;
+    if (typeof p.questDoneToday === 'boolean') S.questDoneOn = p.questDoneToday ? new Date().toDateString() : '';
+    if (Array.isArray(p.toolsSeen)) S.toolsSeen = p.toolsSeen.slice();
+    if (p.toolScores && typeof p.toolScores === 'object') S.toolScores = { ...p.toolScores };
+    if (Array.isArray(p.chaptersUsed)) S.chaptersUsed = p.chaptersUsed.slice();
+    if (Array.isArray(p.promptTemplatesUsed)) S.promptTemplatesUsed = p.promptTemplatesUsed.slice();
+    if (Array.isArray(p.starterDone)) S.starterDone = p.starterDone.slice();
+    if (Array.isArray(p.teacherModulesDone)) S.teacherModulesDone = p.teacherModulesDone.slice();
+    // Union, server first: a badge earned locally seconds ago may not have
+    // reached the server yet, and a badge must never visibly un-earn itself.
+    if (Array.isArray(p.badges)) S.badges = p.badges.concat((S.badges || []).filter(k => !p.badges.includes(k)));
+    if (p.badgeDates && typeof p.badgeDates === 'object') S.badgeDates = { ...S.badgeDates, ...p.badgeDates };
+    if (typeof p.classCode === 'string') S.classCode = p.classCode;
+    if (p.classGroup && CLASS_GROUPS[p.classGroup]) S.classGroup = p.classGroup;
+    if (typeof p.avatar === 'string' && AVATARS.some(a => a.k === p.avatar)) S.avatar = p.avatar;
+    if (p.locale === 'en' || p.locale === 'hi') S.locale = p.locale;
+    save();
+    return true;
+  } catch { return false; }
+}
+
+/* --------------------------------------------------------------- hydrate */
+
+/* Never blocks first paint: render() has already drawn the local state by the
+   time this resolves, so a slow network costs a late re-render, not a blank
+   screen. */
+async function hydrateFromServer() {
+  if (!signedIn()) return false;
+  try {
+    const out = await api('/journey/me');
+    const d = out && out.data;
+    if (!d) return false;
+    adoptProfile(d.profile);
+    if (Array.isArray(d.creations)) {
+      S.creations = d.creations.map(c => ({
+        id: String(c.id),
+        title: String(c.title || ''),
+        tool: String(c.tool || ''),
+        link: String(c.link || ''),
+        note: String(c.note || ''),
+        emoji: c.emoji || CREATION_EMOJI[0],
+        ts: Number(c.ts) || Date.now()
+      }));
+    }
+    if (Array.isArray(d.timeline)) {
+      S.timeline = d.timeline.slice(-TIMELINE_MAX).map(e => ({
+        k: String(e.k || ''), l: String(e.l || ''),
+        ts: Number(e.ts) || Date.now(), m: String(e.m || '')
+      }));
+    }
+    save();
+    render();
+    return true;
+  } catch { return false; }
+}
+
+/* ------------------------------------------------------ creations + onboard */
+
+/* Creations are posted directly instead of queued: the server hands back the
+   real id, and a locally-invented id that later disagrees with the server is
+   how duplicate portfolio entries happen. A failed post keeps the local copy
+   exactly as a guest would have it — nothing is lost, it just is not on the
+   server yet. */
+async function syncCreation(local) {
+  if (!signedIn() || !local) return;
+  try {
+    const out = await api('/journey/creations', {
+      method: 'POST',
+      body: {
+        title: local.title, tool: local.tool || '',
+        link: local.link || '', note: local.note || '', emoji: local.emoji || ''
+      }
+    });
+    const d = out && out.data;
+    if (!d || !d.creation) return;
+    const i = S.creations.findIndex(c => c.id === local.id);
+    if (i >= 0) {
+      S.creations[i] = {
+        ...S.creations[i], ...d.creation,
+        id: String(d.creation.id),
+        ts: Number(d.creation.ts) || S.creations[i].ts
+      };
+    }
+    adoptProfile(d.profile);
+    save();
+    if (currentRoute() === 'creations') render();
+  } catch {}
+}
+
+function syncCreationDeleted(id) {
+  if (!signedIn() || !id) return;
+  try { api('/journey/creations/' + encodeURIComponent(id), { method: 'DELETE' }).catch(() => {}); } catch {}
+}
+
+async function syncOnboard() {
+  if (!signedIn()) return;
+  try {
+    const body = {
+      journeyRole: S.role || 'student',
+      classGroup: S.classGroup,
+      avatar: S.avatar,
+      locale: S.locale
+    };
+    if (S.classCode) body.classCode = S.classCode;
+    if (S.name) body.name = S.name;
+    const out = await api('/journey/onboard', { method: 'POST', body });
+    adoptProfile(out && out.data && out.data.profile);
+  } catch {}
+}
+
+/* --------------------------------------------------------------- backfill */
+
+/* A student can use this app for weeks before anyone hands them an account.
+   The first sign-in replays that history to the server as ordinary events —
+   the server dedupes, so replaying is safe, but posting creations is not
+   idempotent, which is why this runs at most once per account per device. */
+function backfillAlreadyRan(uid) {
+  try {
+    const list = JSON.parse(lsGet(BACKFILL_KEY) || '[]');
+    return Array.isArray(list) && list.includes(uid);
+  } catch { return false; }
+}
+function markBackfilled(uid) {
+  try {
+    const list = JSON.parse(lsGet(BACKFILL_KEY) || '[]');
+    lsSet(BACKFILL_KEY, JSON.stringify((Array.isArray(list) ? list : []).concat([uid]).slice(-20)));
+  } catch {}
+}
+
+async function backfillToServer() {
+  const user = authUser();
+  const uid = user && (user.id || user.email);
+  if (!signedIn() || !uid || backfillAlreadyRan(uid)) return;
+  markBackfilled(uid);  // marked up front: a half-finished run must not double-post creations
+
+  const events = [];
+  const add = (kind, payload) => events.push({ kind, payload });
+  try {
+    (S.toolsSeen || []).forEach(slug => add('tool_explored', { slug }));
+    Object.keys(S.toolScores || {}).forEach(slug => {
+      add('quiz_completed', { slug, pct: Math.max(0, Math.min(100, Math.round(Number(S.toolScores[slug]) || 0))) });
+    });
+    (S.chaptersUsed || []).forEach(slug => add('curriculum_prompt', { chapterSlug: slug }));
+    (S.promptTemplatesUsed || []).forEach(key => add('prompt_built', { tplKey: key }));
+    (S.starterDone || []).forEach(key => add('starter_step', { key }));
+    (S.teacherModulesDone || []).forEach(key => add('upskill_module', { key }));
+    if (S.classCode) add('class_join', { code: S.classCode });
+
+    for (let i = 0; i < events.length; i += EVENTS_PER_CALL) {
+      try {
+        await api('/journey/events', { method: 'POST', body: { events: events.slice(i, i + EVENTS_PER_CALL) } });
+      } catch {}   // one lost batch must not abandon the rest of a student's history
+    }
+    for (const c of (S.creations || [])) {
+      try {
+        await api('/journey/creations', {
+          method: 'POST',
+          body: { title: c.title, tool: c.tool || '', link: c.link || '', note: c.note || '', emoji: c.emoji || '' }
+        });
+      } catch {}
+    }
+    await syncOnboard();
+  } catch {}
+}
+
+/* ------------------------------------------------------------------- auth */
+
+async function cloudLogin(email, password) {
+  const out = await api('/auth/login', { method: 'POST', auth: false, body: { email, password } });
+  const d = out && out.data;
+  if (!d || !d.token) throw new Error('login returned no token');
+  lsSet(TOKEN_KEY, d.token);
+  lsSet(USER_KEY, JSON.stringify({ id: d.id || '', email: d.email || email, name: d.name || '' }));
+  if (d.name && !S.name) { S.name = d.name; save(); }
+  return d;
+}
+
+async function cloudRegister(name, email, password) {
+  await api('/auth/register', { method: 'POST', auth: false, body: { name, email, password } });
+  return cloudLogin(email, password);   // register does not return a token by contract
+}
+
+async function afterSignedIn() {
+  await backfillToServer();
+  await flushQueue();
+  await hydrateFromServer();
+  render();
+}
+
+function bootSync() {
+  try {
+    addEventListener('online', () => { flushQueue(); });
+    if (!signedIn()) return;
+    flushQueue().then(() => hydrateFromServer()).catch(() => {});
+  } catch {}
+}
+
+function ctx() {
+  return {
+    tools: S.toolsSeen.length,
+    mastered: Object.values(S.toolScores).filter(p => p >= 80).length,
+    perfect: Object.values(S.toolScores).filter(p => p === 100).length,
+    streak: S.streak, level: levelForXp(S.xp), quests: S.quests, inClass: !!S.classCode,
+    chapters: S.chaptersUsed.length,
+    catsUsed: new Set(S.toolsSeen.map(slug => TOOL_BY_SLUG.get(slug)?.cat).filter(Boolean)).size,
+    promptTemplates: S.promptTemplatesUsed.length,
+    creations: S.creations.length,
+    starter: S.starterDone.length
+  };
+}
+
+function haptic(ms = 12) { try { navigator.vibrate?.(ms); } catch {} }
+
+function chime(freqs) {
+  if (!S.sound || reduced()) return;
+  try {
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    const ac = new Ctx();
+    freqs.forEach((f, i) => {
+      const o = ac.createOscillator(), g = ac.createGain();
+      o.type = 'triangle'; o.frequency.value = f;
+      const t0 = ac.currentTime + i * 0.11;
+      g.gain.setValueAtTime(0.0001, t0);
+      g.gain.exponentialRampToValueAtTime(0.16, t0 + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.32);
+      o.connect(g).connect(ac.destination); o.start(t0); o.stop(t0 + 0.36);
+    });
+  } catch {}
+}
+
+function toast(msg) {
+  const n = $('#toast');
+  if (!n) return;
+  n.textContent = msg; n.classList.add('on');
+  clearTimeout(n._t); n._t = setTimeout(() => n.classList.remove('on'), 2300);
+}
+
+/* ------------------------------------------------------------ voice input */
+
+/* Chrome and Android Chrome ship this as webkitSpeechRecognition; Safari
+   picked it up later under the same prefixed name; Firefox still does not
+   support it at all as of this build. Feature-detected once at module load
+   rather than per-call, since the answer cannot change mid-session. */
+const SpeechRecognitionCtor = window.SpeechRecognition || window.webkitSpeechRecognition || null;
+
+let activeRecognition = null; // only one mic can reasonably be listening at once
+
+/* Wires a single text input to a single mic button. Silently does nothing
+   if the browser has no speech API — the button stays hidden rather than
+   present-but-broken, which is a worse failure than not offering it. */
+function initVoiceInput(inputEl, btnEl) {
+  if (!SpeechRecognitionCtor || !inputEl || !btnEl) return;
+  btnEl.hidden = false;
+
+  btnEl.onclick = () => {
+    // A second tap while already listening should stop it, not start a
+    // second overlapping recognition session.
+    if (activeRecognition) { activeRecognition.stop(); return; }
+
+    const rec = new SpeechRecognitionCtor();
+    rec.lang = S.locale === 'hi' ? 'hi-IN' : 'en-IN';
+    rec.interimResults = false;
+    rec.maxAlternatives = 1;
+
+    activeRecognition = rec;
+    btnEl.classList.add('is-listening');
+    haptic(10);
+
+    rec.onresult = e => {
+      const transcript = e.results?.[0]?.[0]?.transcript || '';
+      if (transcript) {
+        inputEl.value = transcript;
+        // Real input event, not a direct state write — whatever oninput
+        // handler already drives this field (the live prompt preview, in
+        // every case this is wired to today) fires exactly as if the
+        // student had typed it, instead of needing its own parallel path.
+        inputEl.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+    };
+    rec.onerror = () => { toast('🎤 ' + t('voiceError')); };
+    rec.onend = () => { btnEl.classList.remove('is-listening'); activeRecognition = null; };
+
+    try { rec.start(); }
+    catch { btnEl.classList.remove('is-listening'); activeRecognition = null; }
+  };
+}
+
+/* ------------------------------------------------------------ read aloud */
+
+const speechSupported = 'speechSynthesis' in window;
+let activeUtterance = null;
+
+/* Reads plain text aloud in the current locale. Cancels whatever it was
+   already saying rather than queuing — a student tapping "listen" again
+   almost always means "read it again," not "read it again after finishing
+   the last one." */
+function speakText(text, btnEl) {
+  if (!speechSupported || !text) return;
+  window.speechSynthesis.cancel();
+  const u = new SpeechSynthesisUtterance(text);
+  u.lang = S.locale === 'hi' ? 'hi-IN' : 'en-IN';
+  u.rate = 0.95;
+  activeUtterance = u;
+  if (btnEl) {
+    btnEl.classList.add('is-speaking');
+    u.onend = () => btnEl.classList.remove('is-speaking');
+    u.onerror = () => btnEl.classList.remove('is-speaking');
+  }
+  window.speechSynthesis.speak(u);
+}
+
+function countTo(node, from, to, dur = 850) {
+  if (!node) return;
+  if (reduced()) { node.textContent = to.toLocaleString(); return; }
+  const t0 = performance.now();
+  const step = now => {
+    const p = Math.min(1, (now - t0) / dur);
+    node.textContent = Math.round(from + (to - from) * (1 - Math.pow(1 - p, 3))).toLocaleString();
+    if (p < 1) requestAnimationFrame(step);
+  };
+  requestAnimationFrame(step);
+}
+
+function confetti() {
+  if (reduced()) return;
+  const cv = $('#confetti'); if (!cv) return;
+  cv.classList.add('on');
+  const c = cv.getContext('2d');
+  cv.width = innerWidth; cv.height = innerHeight;
+  const cols = ['#ffc93c', '#ff6b35', '#2bd97c', '#7c3aed', '#38bdf8'];
+  const bits = Array.from({ length: 120 }, () => ({
+    x: innerWidth / 2 + (Math.random() - 0.5) * 180, y: innerHeight / 2,
+    vx: (Math.random() - 0.5) * 13, vy: Math.random() * -15 - 4,
+    s: 5 + Math.random() * 7, c: cols[(Math.random() * cols.length) | 0],
+    r: Math.random() * 6, vr: (Math.random() - 0.5) * 0.34
+  }));
+  let f = 0;
+  (function loop() {
+    c.clearRect(0, 0, cv.width, cv.height);
+    bits.forEach(b => {
+      b.vy += 0.42; b.x += b.vx; b.y += b.vy; b.r += b.vr;
+      c.save(); c.translate(b.x, b.y); c.rotate(b.r);
+      c.fillStyle = b.c; c.fillRect(-b.s / 2, -b.s / 2, b.s, b.s * 0.6); c.restore();
+    });
+    if (++f < 175) requestAnimationFrame(loop);
+    else { c.clearRect(0, 0, cv.width, cv.height); cv.classList.remove('on'); }
+  })();
+}
+
+/* Reveal-on-scroll. If the browser has no IntersectionObserver — some of the
+   older machines in a school computer lab genuinely do not — everything is
+   simply shown at once. A missing nicety must never cost a student content. */
+const io = typeof IntersectionObserver === 'function'
+  ? new IntersectionObserver(entries => {
+      entries.forEach(e => { if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); } });
+    }, { rootMargin: '0px 0px -40px 0px', threshold: 0.05 })
+  : null;
+const observeReveals = root => root.querySelectorAll('.reveal:not(.in)')
+  .forEach(n => io ? io.observe(n) : n.classList.add('in'));
+
+/* ------------------------------------------------------------- XP awarding */
+
+
+/* Capped, because this shares localStorage with the student's progress and a
+   log that grew forever would eventually crowd out the thing it describes.
+   Sixty entries is comfortably a full term of milestones. */
+const TIMELINE_MAX = 60;
+
+function logEvent(kind, label, meta) {
+  if (S.role !== 'student') return;
+  S.timeline = S.timeline || [];
+  S.timeline.push({ k: kind, l: String(label), ts: Date.now(), m: meta ? String(meta) : '' });
+  if (S.timeline.length > TIMELINE_MAX) S.timeline = S.timeline.slice(-TIMELINE_MAX);
+  save();
+}
+
+function gain(amount, label) {
+  const before = S.xp, lb = levelForXp(before);
+  S.xp += amount;
+  const la = levelForXp(S.xp);
+
+  const fresh = BADGES.filter(b => !S.badges.includes(b.k) && b.need(ctx()));
+  fresh.forEach(b => { S.badges.push(b.k); S.badgeDates[b.k] = Date.now(); logEvent('badge', L(b.n), b.e); });
+  if (la > lb) logEvent('level', String(la), S.locale === 'hi' ? 'स्तर' : 'Level');
+  save();
+
+  toast(`+${amount} XP · ${label}`);
+  haptic(18);
+  chime([659.25]);
+
+  if (la > lb) queueTakeover(la, fresh);
+  else if (fresh.length) queueTakeover(null, fresh);
+
+  return { leveled: la > lb, fresh };
+}
+
+/* ---------------------------------------------------- level-up / badge modal */
+
+/* A student can trigger several XP events in a few seconds — opening three
+   curriculum chapters back to back is a level-up and two badges. Firing
+   independent setTimeouts for each would stack multiple celebration modals
+   on top of each other and leave their typewriter intervals running after
+   the modal is gone. This queue shows them one at a time instead. */
+let takeoverQueue = [];
+let takeoverActive = false;
+
+function queueTakeover(level, badges) {
+  takeoverQueue.push({ level, badges });
+  setTimeout(advanceTakeoverQueue, 620);
+}
+
+function advanceTakeoverQueue() {
+  if (takeoverActive || !takeoverQueue.length) return;
+  const next = takeoverQueue.shift();
+  takeoverActive = true;
+  takeover(next.level, next.badges);
+}
+
+function takeover(level, badges) {
+  const msg = level
+    ? (S.locale === 'hi' ? `स्तर ${level}! अब आप ${groupTitleFor(level)[2]} हैं।` : `Level ${level}. You're a ${groupTitleFor(level)[1]} now.`)
+    : (S.locale === 'hi' ? 'नया बैज मिला!' : 'New badge unlocked!');
+
+  const over = el('div', 'over');
+  over.setAttribute('role', 'dialog');
+  over.setAttribute('aria-modal', 'true');
+  over.innerHTML = `<div class="over__panel">
+      <div class="over__voldy">${groupCfg().voldy}</div>
+      <p class="over__msg" id="overMsg"></p>
+      <ul class="over__badges">${(badges || []).map(b => `<li>${b.e} ${esc(L(b.n))}</li>`).join('')}</ul>
+      <button class="btn btn--primary btn--block" style="margin-top:18px" id="overBtn">${esc(t('keepGoing'))}</button>
+    </div>`;
+  document.body.appendChild(over);
+
+  const out = over.querySelector('#overMsg');
+  let tick = null;
+  if (reduced()) {
+    out.textContent = msg;
+  } else {
+    let i = 0;
+    tick = setInterval(() => {
+      // Defensive: if the modal was removed by some other path while this
+      // was still ticking, stop instead of touching a detached node.
+      if (!out.isConnected) { clearInterval(tick); return; }
+      i++;
+      out.innerHTML = esc(msg.slice(0, i)) + (i < msg.length ? '<span class="caret"></span>' : '');
+      if (i >= msg.length) clearInterval(tick);
+    }, 34);
+  }
+
+  if (level) { confetti(); chime([523.25, 783.99]); haptic(40); }
+
+  const close = () => {
+    if (tick) clearInterval(tick);
+    over.remove();
+    document.removeEventListener('keydown', onKey);
+    openOverlayClosers = openOverlayClosers.filter(fn => fn !== close);
+    takeoverActive = false;
+    advanceTakeoverQueue();
+  };
+  const onKey = e => { if (e.key === 'Escape') close(); };
+  over.querySelector('#overBtn').onclick = close;
+  over.addEventListener('click', e => { if (e.target === over) close(); });
+  document.addEventListener('keydown', onKey);
+  openOverlayClosers.push(close);
+  over.querySelector('#overBtn').focus();
+}
+
+/* ------------------------------------------------------------------ sheets */
+
+/* Sheets and the level-up takeover are appended straight to <body>, outside
+   #appRoot, so a normal render() never touches them — including the
+   render() triggered by the browser's own back/forward buttons. Without
+   this, pressing back while a sheet is open leaves it floating on top of
+   whatever page loads underneath. Every overlay registers its real close
+   function here (not just its DOM node) so navigation can dismiss it
+   properly — cancelling timers, removing document-level key listeners —
+   instead of leaving those dangling. */
+let openOverlayClosers = [];
+
+/* ===========================================================================
+   VOLDY — the in-app guide, not a chatbot
+   ---------------------------------------------------------------------------
+   The request behind this was "add a chatbot." A real one — something that
+   actually talks to an AI — needs a backend to hold an API key safely;
+   client-side, that key sits in plain JavaScript, visible to any student's
+   dev tools. That is not built yet, so this is not that.
+   What it is instead: Voldy, the mascot already used at onboarding and
+   level-up, answering a fixed list of tappable questions about the app
+   itself. There is no free-text input anywhere in this feature, on purpose.
+   A text box in a chat-bubble UI is exactly the shape of thing a student
+   could mistake for a real AI, especially with instant canned replies — a
+   bigger honesty risk than a missing feature. Tap-only means Voldy can never
+   be asked something it wasn't built to answer, and "is this a real AI?" is
+   itself one of the topics, answered plainly, before anyone has to wonder.
+   =========================================================================== */
+
+const VOLDY_TOPICS = [
+  { key: 'real-ai', emoji: '🧭',
+    q: { en: 'Is this a real AI I\'m talking to?', hi: 'क्या यह असली एआई है जिससे मैं बात कर रहा हूँ?' },
+    a: { en: 'No — I\'m just Voldy, a quick guide built into the app. I can only answer the questions listed here; I can\'t chat about anything else. For a real AI conversation, open a tool from Explore.', hi: 'नहीं — मैं सिर्फ़ वोल्डी हूँ, ऐप में बना एक त्वरित गाइड। मैं सिर्फ़ यहाँ दी गई सूची के सवालों के जवाब दे सकता हूँ, कुछ और नहीं। असली एआई से बात करने के लिए Explore से कोई टूल खोलें।' } },
+  { key: 'find-chapter', emoji: '📖', route: 'curriculum',
+    q: { en: 'How do I find my textbook chapter?', hi: 'अपनी किताब का अध्याय कैसे खोजूँ?' },
+    a: { en: 'Open Chapters, pick your board, then your class and subject. Every chapter links to the real NCERT page and a few ready-made prompts.', hi: 'अध्याय खोलें, अपना बोर्ड चुनें, फिर कक्षा और विषय। हर अध्याय असली NCERT पेज और कुछ तैयार प्रॉम्प्ट से जुड़ा है।' } },
+  { key: 'build-prompt', emoji: '🪄', route: 'prompts',
+    q: { en: 'How do I build a prompt for an AI tool?', hi: 'एआई टूल के लिए प्रॉम्प्ट कैसे बनाऊँ?' },
+    a: { en: 'Open Prompts, pick what you want to make, fill in your topic, then copy the prompt it writes straight into the tool.', hi: 'Prompts खोलें, जो बनाना है वह चुनें, अपना विषय भरें, फिर बना प्रॉम्प्ट सीधे टूल में कॉपी करें।' } },
+  { key: 'save-creation', emoji: '🌟', route: 'creations',
+    q: { en: 'How do I save something I made?', hi: 'जो मैंने बनाया उसे कैसे सहेजूँ?' },
+    a: { en: 'Open Creations and tap "Add a creation." Give it a title and, if you have one, a link to what you made.', hi: 'Creations खोलें और "रचना जोड़ें" दबाएँ। शीर्षक दें और अगर लिंक है तो वह भी जोड़ें।' } },
+  { key: 'join-class', emoji: '🏫', route: 'profile',
+    q: { en: 'How do I join my class?', hi: 'अपनी कक्षा में कैसे जुड़ूँ?' },
+    a: { en: 'Open Profile and enter the class code your teacher gave you under "Join a class."', hi: 'प्रोफ़ाइल खोलें और "कक्षा में जुड़ें" में अपने शिक्षक का दिया कक्षा कोड डालें।' } },
+  { key: 'xp-levels', emoji: '⚡',
+    q: { en: 'What are XP and levels?', hi: 'XP और स्तर क्या हैं?' },
+    a: { en: 'XP is points you earn for real activity — trying a tool, passing a quiz, saving a creation. Enough XP moves you up a level, shown on your Home screen.', hi: 'XP असल गतिविधि के लिए मिलने वाले अंक हैं — टूल आज़माना, क्विज़ पास करना, रचना सहेजना। पर्याप्त XP से स्तर बढ़ता है, जो होम स्क्रीन पर दिखता है।' } },
+  { key: 'streak', emoji: '🔥',
+    q: { en: 'What is a streak?', hi: 'स्ट्रीक क्या है?' },
+    a: { en: 'The number of days in a row you have done something in the app. It resets if you miss a full day, so it rewards showing up often, not doing everything at once.', hi: 'लगातार कितने दिन आपने ऐप में कुछ किया, यह उसकी गिनती है। पूरा दिन छूटने पर यह फिर से शुरू होती है — यह अक्सर आने का इनाम है, एक साथ सब करने का नहीं।' } },
+  { key: 'badges', emoji: '🎖️', route: 'badges',
+    q: { en: 'How do I earn a badge?', hi: 'बैज कैसे मिलेगा?' },
+    a: { en: 'Badges unlock automatically from real activity. Open Badges to see which ones you have and what each one still needs.', hi: 'बैज असल गतिविधि से अपने आप खुलते हैं। Badges खोलकर देखें आपके पास कौन-से हैं और किसके लिए क्या बचा है।' } },
+  { key: 'hindi', emoji: '🌐',
+    q: { en: 'How do I switch to Hindi?', hi: 'हिंदी में कैसे बदलूँ?' },
+    a: { en: 'Tap the language button at the top of any screen — it switches the whole app between English and Hindi.', hi: 'किसी भी स्क्रीन के ऊपर भाषा बटन दबाएँ — यह पूरे ऐप को अंग्रेज़ी और हिंदी के बीच बदल देता है।' }, act: 'lang' }
+];
+
+
+function closeAllOverlays() {
+  openOverlayClosers.slice().forEach(fn => { try { fn(); } catch {} });
+  openOverlayClosers = [];
+}
+
+function sheet(html, onMount) {
+  const scrim = el('div', 'scrim');
+  scrim.innerHTML = `<div class="sheet" role="dialog" aria-modal="true"><div class="sheet__grab"></div>${html}</div>`;
+  document.body.appendChild(scrim);
+  const close = () => {
+    scrim.remove();
+    document.removeEventListener('keydown', onKey);
+    openOverlayClosers = openOverlayClosers.filter(fn => fn !== close);
+  };
+  const onKey = e => { if (e.key === 'Escape') close(); };
+  scrim.addEventListener('click', e => { if (e.target === scrim) close(); });
+  document.addEventListener('keydown', onKey);
+  openOverlayClosers.push(close);
+  onMount?.(scrim.querySelector('.sheet'), close);
+  return close;
+}
+
+/* ------------------------------------------------------------------ router */
+
+const ROUTES = [
+  'home', 'explore', 'curriculum', 'prompts', 'creations', 'search', 'voyage', 'badges', 'board', 'profile', 'quiz',
+  'teacher', 'live', 'magic', 'upskill', 'planner', 'papers',
+  'principal', 'journey', 'flags', 'coverage', 'coverageHeat', 'reports',
+  'parent', 'family'
+];
+let quizArg = null;
+
+function go(route, arg) {
+  quizArg = arg ?? null;
+  location.hash = '#/' + route;
+}
+
+/* Query-string helpers for hash-encoded sub-navigation. currentRoute()
+   already strips everything after '?', so drill-down state (which board,
+   class, subject, chapter; which tool category) can live in the hash
+   without touching route matching. The payoff: every selection becomes a
+   real history entry, so the browser/phone back button steps up one level
+   at a time — Chapter -> Subject -> Class -> Board -> Curriculum tab —
+   instead of exiting the whole feature in a single tap. */
+function hashParams() {
+  const q = location.hash.split('?')[1] || '';
+  const out = {};
+  q.split('&').forEach(pair => {
+    if (!pair) return;
+    const [k, v] = pair.split('=');
+    if (k) out[decodeURIComponent(k)] = decodeURIComponent(v || '');
+  });
+  return out;
+}
+
+function pushHash(route, params) {
+  const qs = Object.entries(params || {})
+    .filter(([, v]) => v)
+    .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`)
+    .join('&');
+  const next = '#/' + route + (qs ? '?' + qs : '');
+  if (location.hash === next) { render(); return; } // identical state — just repaint, no new history entry
+  location.hash = next; // assigning a new hash value fires 'hashchange' -> render()
+}
+
+function currentRoute() {
+  const r = (location.hash || '#/home').replace('#/', '').split('?')[0];
+  return ROUTES.includes(r) ? r : (S.role === 'teacher' ? 'teacher' : S.role === 'principal' ? 'principal' : S.role === 'parent' ? 'parent' : 'home');
+}
+
+addEventListener('hashchange', () => { closeAllOverlays(); render(); });
+
+/* ======================================================================= UI */
+
+
+/* ===========================================================================
+   NAVIGATION ICONS
+   Emoji were doing the work here, and at seven tabs they were the loudest,
+   most saturated thing on every screen — competing with the content on a
+   deliberately quiet paper palette, and rendering differently on every
+   phone. These are single-stroke marks that inherit the current text
+   colour, so navigation recedes and the page itself reads first.
+   Emoji stay where they carry meaning rather than label a destination:
+   avatars, tool logos, and rewards.
+   =========================================================================== */
+const ICONS = {
+  home:       '<path d="M3 10.2 12 3l9 7.2"/><path d="M5.5 9.4V20h13V9.4"/><path d="M9.7 20v-5.6h4.6V20"/>',
+  explore:    '<circle cx="12" cy="12" r="8.6"/><path d="m15.4 8.6-2 4.8-4.8 2 2-4.8z"/>',
+  book:       '<path d="M4 4.8h5.2A2.8 2.8 0 0 1 12 7.6V20a2.4 2.4 0 0 0-2.4-2.4H4z"/><path d="M20 4.8h-5.2A2.8 2.8 0 0 0 12 7.6V20a2.4 2.4 0 0 1 2.4-2.4H20z"/>',
+  wand:       '<path d="m5 19 9.5-9.5"/><path d="m16.4 7.6 2-2"/><path d="M18 3.2v2.6"/><path d="M21.4 6.6h-2.6"/><path d="m14.6 4.8 1.2 1.2"/><path d="m20.2 10.4-1.2-1.2"/>',
+  star:       '<path d="m12 3.6 2.6 5.3 5.8.85-4.2 4.1 1 5.75L12 16.9l-5.2 2.7 1-5.75-4.2-4.1 5.8-.85z"/>',
+  /* Rosette rather than a hanging medal: at 21px the ribbon-above form
+     collapsed into an ambiguous blob, while tails below stay legible. */
+  medal:      '<circle cx="12" cy="9.2" r="5.2"/><path d="m8.7 13.6-1.3 6.8 4.6-2.6 4.6 2.6-1.3-6.8"/>',
+  user:       '<circle cx="12" cy="8.4" r="3.8"/><path d="M4.8 20.4a7.2 7.2 0 0 1 14.4 0"/>',
+  school:     '<path d="M3.2 20.4h17.6"/><path d="M5.4 20.4V9.6L12 5.4l6.6 4.2v10.8"/><path d="M9.8 20.4v-5h4.4v5"/>',
+  broadcast:  '<circle cx="12" cy="12" r="2.4"/><path d="M7.6 7.6a6.2 6.2 0 0 0 0 8.8"/><path d="M16.4 16.4a6.2 6.2 0 0 0 0-8.8"/><path d="M4.8 4.8a10.2 10.2 0 0 0 0 14.4"/><path d="M19.2 19.2a10.2 10.2 0 0 0 0-14.4"/>',
+  cap:        '<path d="M2.8 9.2 12 5l9.2 4.2L12 13.4z"/><path d="M6.4 11v4.8c0 1.5 2.5 2.8 5.6 2.8s5.6-1.3 5.6-2.8V11"/>',
+  bank:       '<path d="M3.2 20.4h17.6"/><path d="M4.6 9.8h14.8"/><path d="M12 3.6 20 9.8H4z"/><path d="M7 12v6"/><path d="M12 12v6"/><path d="M17 12v6"/>',
+  target:     '<circle cx="12" cy="12" r="8.4"/><circle cx="12" cy="12" r="4.8"/><circle cx="12" cy="12" r="1.3"/>',
+  doc:        '<path d="M13.4 3.4H6.8v17.2h10.4V7.2z"/><path d="M13.4 3.4v3.8h3.8"/><path d="M9.6 12.4h4.8"/><path d="M9.6 16h4.8"/>',
+  map:        '<path d="m3.6 6.6 5.4-2.2v13l-5.4 2.2z"/><path d="M9 4.4 15 6.6v13L9 17.4z"/><path d="m15 6.6 5.4-2.2v13L15 19.6z"/>',
+  flag:       '<path d="M5.4 21V3.8"/><path d="M5.4 4.6h11.8l-2 3.6 2 3.6H5.4z"/>',
+  trophy:     '<path d="M8 4.2h8v5a4 4 0 0 1-8 0z"/><path d="M8 5.6H5.2v1.6A3 3 0 0 0 8 10.1"/><path d="M16 5.6h2.8v1.6A3 3 0 0 1 16 10.1"/><path d="M12 13.2v3.4"/><path d="M8.8 19.8h6.4"/><path d="M10 16.6h4v3.2h-4z"/>',
+  search:     '<circle cx="10.8" cy="10.8" r="6.6"/><path d="m15.6 15.6 4 4"/>',
+  grid:       '<rect x="3.4" y="4.6" width="17.2" height="15.8" rx="2"/><path d="M3.4 9.4h17.2"/><path d="M9.2 9.4v11"/><path d="M15 9.4v11"/>',
+  mic:        '<rect x="9" y="2.6" width="6" height="11" rx="3"/><path d="M5.4 11.4a6.6 6.6 0 0 0 13.2 0"/><path d="M12 18v3.4"/><path d="M8.6 21.4h6.8"/>',
+  volume:     '<path d="M3.6 9.6h3.8L13 5v14l-5.6-4.6H3.6z"/><path d="M16.4 8.6a5 5 0 0 1 0 6.8"/><path d="M19 6.4a9 9 0 0 1 0 11.2"/>'
+};
+
+function icon(name, size) {
+  const d = ICONS[name] || ICONS.star;
+  return `<svg class="ico" viewBox="0 0 24 24" width="${size || 22}" height="${size || 22}" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
+}
+
+function shell() {
+  const r = currentRoute();
+  const nav =
+    S.role === 'teacher' ? [['teacher','school','navClass'],['planner','grid','navPlanner'],['papers','doc','navPapers'],['live','broadcast','navLive'],['magic','wand','navMagic'],['upskill','cap','navUpskill'],['profile','user','profile']]
+    : S.role === 'principal' ? [['principal','bank','principal'],['coverage','target','coverage'],['reports','doc','reports'],['journey','map','journey'],['flags','flag','flags'],['profile','user','profile']]
+    : S.role === 'parent' ? [['parent','home','navParentHome'],['family','star','navFamily'],['profile','user','profile']]
+    : [['home','home','home'],['explore','explore','explore'],['curriculum','book','navCurriculum'],['prompts','wand','navPrompts'],['creations','star','navCreations'],['badges','medal','badges'],['profile','user','profile']];
+
+  return `
+  <div class="app">
+    <aside class="rail">
+      <div class="brand"><span class="brand-bolt">⚡</span> VOL<em>DEBUG</em></div>
+      ${nav.map(([k, i, lbl]) => `<button class="rail-item ${r === k ? 'on' : ''}" data-go="${k}"><i>${icon(i, 21)}</i>${esc(t(lbl))}</button>`).join('')}
+      <div class="rail-foot">
+        <button class="icon-btn" data-act="lang" title="Language">${S.locale === 'en' ? 'हिं' : 'EN'}</button>
+        <button class="icon-btn" data-act="sound" aria-pressed="${S.sound}" title="Sound">${S.sound ? '🔊' : '🔇'}</button>
+        <button class="icon-btn" data-act="theme" title="Theme">${S.dark ? '☀️' : '🌙'}</button>
+      </div>
+    </aside>
+
+    <div class="main">
+      <header class="topbar">
+        <div class="brand"><span class="brand-bolt">⚡</span> VOL<em>DEBUG</em></div>
+        <div class="spacer"></div>
+        ${S.role === 'student' ? `<span class="chip chip--lv" title="${esc(t('level'))} ${levelForXp(S.xp)}">${esc(t('lvShort'))} ${levelForXp(S.xp)}</span><span class="chip chip--flame">🔥 ${S.streak}</span><span class="chip chip--volt">${S.xp.toLocaleString()} XP</span>` : ''}
+        ${S.role === 'teacher' ? `<span class="chip chip--sky">🏫 ${esc(t('teacher_r'))}</span>` : ''}
+        ${S.role === 'principal' ? `<span class="chip chip--sky">🏛️ ${esc(t('principal_r'))}</span>` : ''}
+        ${S.role === 'parent' ? `<span class="chip chip--sky">👪 ${esc(t('parent_r'))}</span>` : ''}
+        ${S.role === 'student' ? `<button class="icon-btn" data-go="search" title="${esc(t('search'))}" aria-label="${esc(t('search'))}">${icon('search', 18)}</button>` : ''}
+        <button class="icon-btn" data-act="lang">${S.locale === 'en' ? 'हिं' : 'EN'}</button>
+        <button class="icon-btn" data-act="theme">${S.dark ? '☀️' : '🌙'}</button>
+      </header>
+      <main class="content" id="viewRoot"></main>
+    </div>
+
+    <nav class="tabbar">
+      ${nav.map(([k, i, lbl]) => `<button class="tab ${r === k ? 'on' : ''}" data-go="${k}"><i>${icon(i, 21)}</i><span class="tab__label">${esc(t(lbl))}</span></button>`).join('')}
+    </nav>
+
+    ${S.role === 'student' ? `<button class="voldy-fab no-print" id="voldyFab" aria-label="${esc(t('voldyOpen'))}">
+      <span class="voldy-fab__face">${groupCfg().voldy}</span>
+    </button>` : ''}
+  </div>`;
+}
+
+/* ===========================================================================
+   WEEKLY LESSON PLANNER (teacher)
+   The most common objection to a programme like this is that it makes more
+   work for teachers. This is the answer to that: pick a chapter and an
+   activity for each day, and the week prints as a clean sheet for a file or
+   a head of department. It reuses the curriculum data and the print
+   stylesheet already built for the principal's reports, so a teacher plans
+   in the same vocabulary the students are learning in.
+   =========================================================================== */
+
+const PLAN_DAYS = ['mon', 'tue', 'wed', 'thu', 'fri'];
+
+/* Flattened chapter list for the picker — the planner needs a teacher to
+   scan all chapters quickly, not drill four levels like a student does. */
+function allChaptersFlat() {
+  const out = [];
+  Object.entries(CURRICULUM).forEach(([bKey, board]) => {
+    Object.entries(board.classes).forEach(([clsNum, clsData]) => {
+      Object.entries(clsData).forEach(([subKey, sub]) => {
+        sub.chapters.forEach(ch => out.push({
+          id: `${bKey}|${clsNum}|${subKey}|${ch.slug}`,
+          title: L(ch.title), subject: L(sub.label), cls: clsNum,
+          board: L(board.label), emoji: sub.emoji
+        }));
+      });
+    });
+  });
+  return out;
+}
+
+/* ===========================================================================
+   QUESTION PAPER SETTER (teacher)
+   ---------------------------------------------------------------------------
+   Same honesty rule as the Magic AI Tools: this fills a structured template
+   from the teacher's own inputs, entirely in the browser, and never invents
+   actual exam questions. What it DOES generate for real: correct section
+   structure, marks distribution that is shown to add up honestly (not
+   silently rounded to match the number the teacher typed), a chapter
+   assigned to every question slot from the real curriculum they picked, and
+   a genuinely useful marking-scheme structure per question type. What a
+   teacher still writes: the question text itself.
+   =========================================================================== */
+
+const PAPER_PATTERNS = {
+  four: { sections: [
+    { key: 'A', marksEach: 1, weight: 0.20, n: { en: 'Very Short Answer / MCQ', hi: 'अति लघु उत्तर / बहुविकल्पीय' } },
+    { key: 'B', marksEach: 2, weight: 0.25, n: { en: 'Short Answer – I', hi: 'लघु उत्तर – I' } },
+    { key: 'C', marksEach: 3, weight: 0.30, n: { en: 'Short Answer – II', hi: 'लघु उत्तर – II' } },
+    { key: 'D', marksEach: 5, weight: 0.25, n: { en: 'Long Answer', hi: 'दीर्घ उत्तर' } }
+  ] },
+  five: { sections: [
+    { key: 'A', marksEach: 1, weight: 0.16, n: { en: 'MCQ', hi: 'बहुविकल्पीय' } },
+    { key: 'B', marksEach: 2, weight: 0.19, n: { en: 'Very Short Answer', hi: 'अति लघु उत्तर' } },
+    { key: 'C', marksEach: 3, weight: 0.23, n: { en: 'Short Answer', hi: 'लघु उत्तर' } },
+    { key: 'D', marksEach: 5, weight: 0.25, n: { en: 'Long Answer', hi: 'दीर्घ उत्तर' } },
+    { key: 'E', marksEach: 4, weight: 0.17, n: { en: 'Case / Source-Based', hi: 'प्रकरण / स्रोत-आधारित' } }
+  ] }
+};
+
+/* A section needs at least one question, and rounding marksEach × count to
+   the requested total will rarely land exactly on it. The achieved total is
+   computed and shown honestly rather than silently claiming the number the
+   teacher typed — a paper that says 80 marks and sums to 77 is a real
+   problem for an exam office, not a rounding footnote. */
+function distributeSections(totalMarks, patternKey) {
+  const pattern = PAPER_PATTERNS[patternKey] || PAPER_PATTERNS.four;
+  return pattern.sections.map(sec => {
+    const raw = totalMarks * sec.weight;
+    const count = Math.max(1, Math.round(raw / sec.marksEach));
+    return { ...sec, count, marks: count * sec.marksEach };
+  });
+}
+
+/* Clamped and normalised the same way slide-count learned to be: a typed
+   value can be empty, negative, non-numeric, or simply not sum to 100, and
+   none of those should silently produce a broken split. */
+function normalizeDifficulty(easy, medium, hard) {
+  const clean = v => { const n = parseInt(v, 10); return Number.isFinite(n) && n >= 0 ? n : 0; };
+  let e = clean(easy), m = clean(medium), h = clean(hard);
+  const sum = e + m + h;
+  if (sum === 0) return { easy: 34, medium: 33, hard: 33 };
+  return { easy: Math.round((e / sum) * 100), medium: Math.round((m / sum) * 100), hard: Math.round((h / sum) * 100) };
+}
+
+function buildQuestionPaper(setup, chapters) {
+  const sections = distributeSections(parseInt(setup.marks, 10) || 80, setup.pattern);
+  const diff = normalizeDifficulty(setup.easy, setup.medium, setup.hard);
+  const diffCycle = [
+    ...Array(Math.round(diff.easy / 10) || 1).fill('easy'),
+    ...Array(Math.round(diff.medium / 10) || 1).fill('medium'),
+    ...Array(Math.round(diff.hard / 10) || 1).fill('hard')
+  ];
+  let qNum = 1, diffI = 0, chapI = 0;
+  const built = sections.map(sec => ({
+    ...sec,
+    questions: Array.from({ length: sec.count }, () => {
+      const q = { num: qNum++, difficulty: diffCycle[diffI % diffCycle.length], chapter: chapters[chapI % chapters.length] };
+      diffI++; chapI++;
+      return q;
+    })
+  }));
+  const achievedTotal = built.reduce((a, s) => a + s.marks, 0);
+  return { sections: built, achievedTotal };
+}
+
+function viewPapers() {
+  const setup = S.paperSetup;
+  const allCh = allChaptersFlat();
+  const pairs = [...new Map(allCh.map(c => [`${c.cls}|${c.subject}`, c])).values()];
+  const chaptersHere = allCh.filter(c => c.cls === setup.cls && c.subject === setup.subject);
+  const selected = chaptersHere.filter(c => setup.chapterIds.includes(c.id));
+  const canBuild = selected.length > 0;
+
+  const diff = normalizeDifficulty(setup.easy, setup.medium, setup.hard);
+  const paper = canBuild ? buildQuestionPaper(setup, selected) : null;
+
+  return `<div class="view">
+    <div class="sec-head no-print"><h2>${esc(t('papers'))}</h2><p>${esc(t('papersSub'))}</p></div>
+    <div class="notice-box no-print" style="margin-bottom:16px">
+      <span class="notice-box__icon">ℹ️</span><span>${esc(t('papersNotice'))}</span>
+    </div>
+
+    <div class="card no-print" style="margin-bottom:16px">
+      <div class="field" style="margin-bottom:12px">
+        <label>${esc(t('papersClassSubject'))}</label>
+        <select class="input" id="pqPair">
+          <option value="">— ${esc(t('papersPick'))} —</option>
+          ${pairs.map(c => `<option value="${esc(c.cls)}|${esc(c.subject)}" ${setup.cls === c.cls && setup.subject === c.subject ? 'selected' : ''}>${esc(t('planClass'))} ${esc(c.cls)} · ${esc(c.subject)}</option>`).join('')}
+        </select>
+      </div>
+
+      ${chaptersHere.length ? `<div class="field" style="margin-bottom:12px">
+        <label>${esc(t('papersChapters'))}</label>
+        <div class="paper-chaps">
+          ${chaptersHere.map(c => `<label class="paper-chap">
+            <input type="checkbox" data-pqchap="${esc(c.id)}" ${setup.chapterIds.includes(c.id) ? 'checked' : ''}/>
+            <span>${esc(c.title)}</span>
+          </label>`).join('')}
+        </div>
+      </div>` : ''}
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+        <div class="field" style="margin:0">
+          <label>${esc(t('papersMarks'))}</label>
+          <input class="input" id="pqMarks" type="number" min="10" max="100" value="${esc(setup.marks)}"/>
+        </div>
+        <div class="field" style="margin:0">
+          <label>${esc(t('papersDuration'))}</label>
+          <input class="input" id="pqDuration" type="number" min="1" max="4" step="0.5" value="${esc(setup.duration)}"/>
+        </div>
+      </div>
+
+      <div class="field" style="margin-bottom:12px">
+        <label>${esc(t('papersPattern'))}</label>
+        <select class="input" id="pqPattern">
+          <option value="four" ${setup.pattern === 'four' ? 'selected' : ''}>${esc(t('papersFour'))}</option>
+          <option value="five" ${setup.pattern === 'five' ? 'selected' : ''}>${esc(t('papersFive'))}</option>
+        </select>
+      </div>
+
+      <div class="field" style="margin-bottom:4px">
+        <label>${esc(t('papersDifficulty'))}</label>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">
+          <input class="input" id="pqEasy" type="number" min="0" max="100" value="${esc(setup.easy)}" placeholder="${esc(t('papersEasy'))}"/>
+          <input class="input" id="pqMedium" type="number" min="0" max="100" value="${esc(setup.medium)}" placeholder="${esc(t('papersMedium'))}"/>
+          <input class="input" id="pqHard" type="number" min="0" max="100" value="${esc(setup.hard)}" placeholder="${esc(t('papersHard'))}"/>
+        </div>
+        <p class="paper-diffread">${esc(t('papersEasy'))} ${diff.easy}% · ${esc(t('papersMedium'))} ${diff.medium}% · ${esc(t('papersHard'))} ${diff.hard}%</p>
+      </div>
+
+      <button class="btn btn--violet btn--block" id="pqGenerate" ${canBuild ? '' : 'disabled'} style="margin-top:8px">
+        ${esc(t('papersGenerate'))}
+      </button>
+      ${!canBuild ? `<p class="field__err" style="text-align:center;margin-top:8px">${esc(t('papersNeedChapter'))}</p>` : ''}
+    </div>
+
+    ${paper ? `<button class="btn btn--ghost btn--block no-print" style="margin-bottom:16px" id="pqPrint">🖨️ ${esc(t('planPrint'))}</button>
+
+    <div class="paper-doc" id="paperDoc">
+      <div class="sample-banner">⚠️ ${esc(t('papersScaffoldBanner'))}</div>
+      <div class="report-doc__head">
+        <p class="report-doc__logo">⚡ VOLDEBUG — AI LITERACY PROGRAMME</p>
+        <h1 class="report-doc__title">${esc(t('papersDocTitle'))}</h1>
+        <p class="report-doc__meta">${esc(t('planClass'))} ${esc(setup.cls)} · ${esc(setup.subject)}</p>
+        <p class="report-doc__meta">${esc(t('papersMaxMarks'))}: ${paper.achievedTotal} &nbsp;·&nbsp; ${esc(t('papersDuration'))}: ${esc(setup.duration)} ${esc(t('papersHrs'))}</p>
+        ${paper.achievedTotal !== (parseInt(setup.marks, 10) || 80) ? `<p class="paper-roundnote">${esc(t('papersRounded'))} ${setup.marks} → ${paper.achievedTotal}.</p>` : ''}
+      </div>
+
+      <h3>${esc(t('papersInstructions'))}</h3>
+      <ol class="paper-instr">
+        <li>${esc(t('papersInstr1'))}</li>
+        <li>${esc(t('papersInstr2'))}</li>
+        <li>${esc(t('papersInstr3'))}</li>
+      </ol>
+
+      ${paper.sections.map(sec => `
+        <h3>${esc(t('papersSection'))} ${sec.key} — ${esc(L(sec.n))} <span class="paper-secmarks">(${sec.count} × ${sec.marksEach} = ${sec.marks})</span></h3>
+        ${sec.questions.map(q => `<p class="paper-q">
+          <b>Q${q.num}.</b> [${esc(t('papersFrom'))}: ${esc(q.chapter.title)}]
+          <span class="paper-tag paper-tag--${q.difficulty}">${esc(t('papers' + q.difficulty.charAt(0).toUpperCase() + q.difficulty.slice(1)))}</span>
+          <span class="paper-marks">(${sec.marksEach} ${sec.marksEach === 1 ? esc(t('papersMark')) : esc(t('papersMarks2'))})</span>
+        </p>`).join('')}
+      `).join('')}
+
+      <div class="paper-break"></div>
+      <h3>${esc(t('papersAnswerKey'))}</h3>
+      <p class="paper-note">${esc(t('papersAnswerNote'))}</p>
+      ${paper.sections.map(sec => sec.questions.map(q =>
+        `<p class="paper-q"><b>${esc(t('papersSection'))} ${sec.key} · Q${q.num}.</b> ${sec.key === 'A' && setup.pattern !== 'four' ? '(a) / (b) / (c) / (d) — ' + esc(t('papersCircle')) : '____________________________________'}</p>`
+      ).join('')).join('')}
+
+      <div class="paper-break"></div>
+      <h3>${esc(t('papersMarking'))}</h3>
+      ${paper.sections.map(sec => `<p class="paper-q"><b>${esc(t('papersSection'))} ${sec.key}</b> (${sec.marksEach} ${esc(t('papersEachQ'))}) —
+        ${sec.marksEach <= 1 ? esc(t('papersMarkMcq')) : sec.marksEach <= 3 ? esc(t('papersMarkShort')) : esc(t('papersMarkLong'))}</p>`).join('')}
+
+      <div class="report-doc__foot">
+        ${esc(t('papersPrepared'))} ${esc(S.name || '')} · Voldebug Innovations Pvt. Ltd.
+      </div>
+    </div>` : ''}
+  </div>`;
+}
+
+function afterPapers() {
+  const pair = $('#pqPair');
+  if (pair) pair.onchange = () => {
+    const [cls, subject] = (pair.value || '|').split('|');
+    S.paperSetup = { ...S.paperSetup, cls, subject, chapterIds: [] };
+    save(); render();
+  };
+  document.querySelectorAll('[data-pqchap]').forEach(cb => cb.onchange = () => {
+    const id = cb.dataset.pqchap;
+    const set = new Set(S.paperSetup.chapterIds);
+    if (cb.checked) set.add(id); else set.delete(id);
+    S.paperSetup.chapterIds = [...set];
+    save(); render();
+  });
+  const marks = $('#pqMarks'); if (marks) marks.onchange = () => { S.paperSetup.marks = marks.value; save(); render(); };
+  const dur = $('#pqDuration'); if (dur) dur.onchange = () => { S.paperSetup.duration = dur.value; save(); render(); };
+  const pat = $('#pqPattern'); if (pat) pat.onchange = () => { S.paperSetup.pattern = pat.value; save(); render(); };
+  ['easy', 'medium', 'hard'].forEach(k => {
+    const el = $(`#pq${k.charAt(0).toUpperCase()}${k.slice(1)}`);
+    if (el) el.onchange = () => { S.paperSetup[k] = el.value; save(); render(); };
+  });
+  const gen = $('#pqGenerate');
+  if (gen) gen.onclick = () => { haptic(15); toast('📄 ' + t('papersGenerated')); render(); };
+  const pr = $('#pqPrint');
+  if (pr) pr.onclick = () => { haptic(10); window.print(); };
+}
+
+function viewPlanner() {
+  const filled = PLAN_DAYS.filter(d => S.lessonPlan[d]).length;
+
+  return `<div class="view">
+    <div class="sec-head no-print"><h2>${esc(t('planner'))}</h2><p>${esc(t('plannerSub'))}</p></div>
+
+    <div class="card no-print" style="margin-bottom:16px">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div class="field" style="margin:0">
+          <label>${esc(t('planClass'))}</label>
+          <input class="input" id="planCls" value="${esc(S.planMeta.cls)}" placeholder="e.g. 8-A" autocomplete="off"/>
+        </div>
+        <div class="field" style="margin:0">
+          <label>${esc(t('planWeek'))}</label>
+          <input class="input" id="planWeek" type="date" value="${esc(S.planMeta.week)}"/>
+        </div>
+      </div>
+    </div>
+
+    ${filled ? `<button class="btn btn--violet btn--block no-print" style="margin-bottom:16px" id="planPrintBtn">🖨️ ${esc(t('planPrint'))}</button>` : ''}
+
+    <div class="plan-doc" id="planDoc">
+      <div class="plan-doc__head print-only">
+        <p class="report-doc__logo">⚡ VOLDEBUG — AI LITERACY PROGRAMME</p>
+        <h1 class="report-doc__title">${esc(t('planPrintTitle'))}</h1>
+        <p class="report-doc__meta">
+          ${S.planMeta.cls ? esc(t('planClass')) + ' ' + esc(S.planMeta.cls) + ' · ' : ''}
+          ${S.planMeta.week ? esc(t('planWeek')) + ' ' + esc(S.planMeta.week) : ''}
+        </p>
+        <p class="report-doc__meta">${esc(t('planPrepared'))} ${esc(S.name || '')}</p>
+      </div>
+
+      ${!filled ? `<div class="card empty-state no-print">
+          <div class="empty-state__emoji">🗓️</div>
+          <p class="empty-state__title">${esc(t('planEmpty'))}</p>
+          <p class="empty-state__sub">${esc(t('planEmptySub'))}</p>
+        </div>` : ''}
+
+      <div class="plan-week">
+        ${PLAN_DAYS.map((d, i) => {
+          const slot = S.lessonPlan[d];
+          return `<div class="card plan-day ${slot ? '' : 'plan-day--free'}" style="--i:${i}">
+            <div class="plan-day__head">
+              <span class="plan-day__name">${esc(t(d))}</span>
+              ${slot ? `<button class="plan-day__clear no-print" data-clearday="${d}">${esc(t('planRemove'))}</button>` : ''}
+            </div>
+            ${slot ? `
+              <p class="plan-day__title">${esc(slot.chapterTitle)}</p>
+              <p class="plan-day__meta">${esc(slot.subject)} · ${esc(t('planClass'))} ${esc(slot.cls)}</p>
+              ${slot.tplKey ? `<p class="plan-day__act">${(PROMPT_TEMPLATE_BY_KEY.get(slot.tplKey)||{}).emoji || ''} ${esc(L((PROMPT_TEMPLATE_BY_KEY.get(slot.tplKey)||{}).n || {}))}</p>` : ''}
+              ${slot.note ? `<p class="plan-day__note">${esc(slot.note)}</p>` : ''}
+            ` : `
+              <p class="plan-day__free">${esc(t('planEmptyDay'))}</p>
+              <button class="btn btn--ghost btn--block no-print" style="margin-top:8px;font-size:14px;min-height:40px" data-addday="${d}">+ ${esc(t('planAddLesson'))}</button>
+            `}
+          </div>`;
+        }).join('')}
+      </div>
+    </div>
+  </div>`;
+}
+
+function openPlanSheet(day) {
+  const chapters = allChaptersFlat();
+  sheet(`
+    <h2 style="font-size:20px;margin-bottom:4px">${esc(t('planAddLesson'))}</h2>
+    <p class="muted" style="font-weight:600;margin-bottom:14px">${esc(t(day))}</p>
+    <div class="field">
+      <label>${esc(t('planPickChapter'))}</label>
+      <select class="input" id="plChapter">
+        ${chapters.map(c => `<option value="${esc(c.id)}">${esc(t('planClass'))} ${esc(c.cls)} · ${esc(c.subject)} — ${esc(c.title)}</option>`).join('')}
+      </select>
+    </div>
+    <div class="field">
+      <label>${esc(t('planPickPrompt'))}</label>
+      <select class="input" id="plTpl">
+        <option value="">—</option>
+        ${PROMPT_TEMPLATES.map(tp => `<option value="${esc(tp.key)}">${tp.emoji} ${esc(L(tp.n))}</option>`).join('')}
+      </select>
+    </div>
+    <div class="field">
+      <label>${esc(t('planNote'))}</label>
+      <input class="input" id="plNote" placeholder="${S.locale==='hi'?'जैसे: पहले 10 मिनट रिवीज़न':'e.g. first 10 min revision'}" autocomplete="off"/>
+    </div>
+    <button class="btn btn--primary btn--block" id="plSave">${esc(t('planSave'))}</button>
+  `, (node, close) => {
+    node.querySelector('#plSave').onclick = () => {
+      const id = node.querySelector('#plChapter').value;
+      const ch = chapters.find(c => c.id === id);
+      if (!ch) { close(); return; }
+      S.lessonPlan[day] = {
+        chapterTitle: ch.title, subject: ch.subject, cls: ch.cls,
+        tplKey: node.querySelector('#plTpl').value,
+        note: node.querySelector('#plNote').value.trim()
+      };
+      save(); close(); haptic(15); toast('🗓️ ' + t('planAdded')); render();
+    };
+  });
+}
+
+function afterPlanner() {
+  document.querySelectorAll('[data-addday]').forEach(b => b.onclick = () => { haptic(8); openPlanSheet(b.dataset.addday); });
+  document.querySelectorAll('[data-clearday]').forEach(b => b.onclick = () => {
+    delete S.lessonPlan[b.dataset.clearday];
+    save(); haptic(20); toast(t('planCleared')); render();
+  });
+  const cls = $('#planCls');
+  if (cls) cls.oninput = () => { S.planMeta.cls = cls.value; save(); };
+  const wk = $('#planWeek');
+  if (wk) wk.onchange = () => { S.planMeta.week = wk.value; save(); };
+  const pb = $('#planPrintBtn');
+  if (pb) pb.onclick = () => { haptic(10); window.print(); };
+}
+
+/* ===========================================================================
+   STARTER PATH (student)
+   A new student lands in an app with seven tabs and no idea where to begin.
+   These are five short, concrete steps that each end in something real
+   being made, rather than a tour of the interface. It disappears once
+   finished — scaffolding, not furniture.
+   =========================================================================== */
+
+const STARTER_STEPS = [
+  { k: 'explore', icon: 'explore', route: 'explore',
+    n: { en: 'Open your first AI tool', hi: 'अपना पहला एआई टूल खोलें' },
+    d: { en: 'Pick any category and read what one tool is good at.', hi: 'कोई श्रेणी चुनें और देखें कि एक टूल किसमें अच्छा है।' } },
+  { k: 'quiz', icon: 'medal', route: 'explore',
+    n: { en: 'Pass one tool quiz', hi: 'एक टूल क्विज़ पास करें' },
+    d: { en: 'Score 60% or more to show you understood it.', hi: '60% या अधिक अंक लाकर दिखाएँ कि आप समझ गए।' } },
+  { k: 'chapter', icon: 'book', route: 'curriculum',
+    n: { en: 'Open a chapter from your own textbook', hi: 'अपनी किताब का एक अध्याय खोलें' },
+    d: { en: 'Find a chapter you are studying right now.', hi: 'वह अध्याय खोजें जो आप अभी पढ़ रहे हैं।' } },
+  { k: 'prompt', icon: 'wand', route: 'prompts',
+    n: { en: 'Build and copy a prompt', hi: 'एक प्रॉम्प्ट बनाकर कॉपी करें' },
+    d: { en: 'Fill in your topic and copy the prompt it writes.', hi: 'अपना विषय भरें और बना हुआ प्रॉम्प्ट कॉपी करें।' } },
+  { k: 'creation', icon: 'star', route: 'creations',
+    n: { en: 'Save something you made', hi: 'अपनी बनाई कोई चीज़ सहेजें' },
+    d: { en: 'Use the prompt in a real tool, then add the result here.', hi: 'प्रॉम्प्ट को किसी टूल में उपयोग करें, फिर परिणाम यहाँ जोड़ें।' } }
+];
+
+/* Steps complete themselves from what the student has actually done, so the
+   list can never claim credit for work that did not happen. */
+function starterAutoDone(k) {
+  if (k === 'explore') return S.toolsSeen.length >= 1;
+  if (k === 'quiz') return Object.values(S.toolScores).some(v => v >= 60);
+  if (k === 'chapter') return S.chaptersUsed.length >= 1;
+  if (k === 'prompt') return S.promptTemplatesUsed.length >= 1;
+  if (k === 'creation') return S.creations.length >= 1;
+  return false;
+}
+
+/* Completing a step must award immediately, not on whatever the student
+   happens to do next. Badges are only evaluated inside gain(), so without
+   this the final step's badge would silently wait for an unrelated XP
+   event. The award is deferred one tick because syncStarter runs during
+   render, and gain() re-renders — calling it inline would recurse. */
+let starterAwardPending = false;
+
+function syncStarter() {
+  const fresh = STARTER_STEPS
+    .filter(st => starterAutoDone(st.k) && !S.starterDone.includes(st.k))
+    .map(st => st.k);
+  if (!fresh.length) return false;
+
+  fresh.forEach(k => { S.starterDone.push(k); pushEvent('starter_step', { key: k }); });
+  save();
+
+  if (!starterAwardPending) {
+    starterAwardPending = true;
+    setTimeout(() => {
+      starterAwardPending = false;
+      gain(XP.starterStep * fresh.length, t('starterPath'));
+    }, 0);
+  }
+  return true;
+}
+
+function starterCard() {
+  if (S.role !== 'student') return '';
+  const done = S.starterDone.length;
+  if (done >= STARTER_STEPS.length) return '';
+
+  return `<section class="sec reveal">
+    <div class="sec-head"><h2>${esc(t('starterPath'))}</h2><p>${esc(t('starterSub'))}</p></div>
+    <div class="card">
+      <div class="starter-bar">
+        <span class="mono" style="font-weight:700;font-size:14px">${done}/${STARTER_STEPS.length}</span>
+        <span class="bar bar--thin" style="flex:1"><span class="bar__fill" style="width:${(done/STARTER_STEPS.length)*100}%"></span></span>
+      </div>
+      ${STARTER_STEPS.map((st, i) => {
+        const isDone = S.starterDone.includes(st.k);
+        const isNext = !isDone && S.starterDone.length === i;
+        return `<div class="starter-step ${isDone ? 'is-done' : ''} ${isNext ? 'is-next' : ''}">
+          <span class="starter-step__mark">${isDone ? '✓' : i + 1}</span>
+          <span class="starter-step__body">
+            <span class="starter-step__title">${esc(L(st.n))}</span>
+            ${!isDone ? `<span class="starter-step__desc">${esc(L(st.d))}</span>` : ''}
+          </span>
+          ${!isDone ? `<button class="starter-step__go no-print" data-startergo="${st.route}">${esc(t('starterGo'))} →</button>` : ''}
+        </div>`;
+      }).join('')}
+    </div>
+  </section>`;
+}
+
+/* ----------------------------------------------------------------- home */
+
+function viewHome() {
+  const lvl = levelForXp(S.xp);
+  const bs = xpForLevel(lvl), be = xpForLevel(lvl + 1);
+  const band = be - bs;
+  const av = AVATARS.find(a => a.k === S.avatar) || AVATARS[0];
+  const quest = groupQuests()[(S.quests + new Date().getDate()) % groupQuests().length];
+  const questDone = S.questDoneOn === new Date().toDateString();
+  const days = S.locale === 'hi' ? ['सो', 'मं', 'बु', 'गु', 'शु', 'श', 'र'] : ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+  const next = groupTools().find(x => !S.toolsSeen.includes(x.slug));
+
+  return `<div class="view">
+    <div class="demo-note">🧪 ${esc(t('demoNote'))}</div>
+
+    <section class="card hero reveal">
+      <div class="ring">
+        <svg viewBox="0 0 128 128" aria-hidden="true">
+          <defs><linearGradient id="voltGrad" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" stop-color="#ffc93c"/><stop offset="100%" stop-color="#ff6b35"/>
+          </linearGradient></defs>
+          <circle class="ring__track" cx="64" cy="64" r="56"/>
+          <circle class="ring__fill" id="ringFill" cx="64" cy="64" r="56"/>
+        </svg>
+        <span class="ring__avatar">${av.e}</span>
+        <span class="ring__lv"><i>Lv</i>${lvl}</span>
+      </div>
+      <div class="hero__body">
+        <h1 class="hero__hi">${esc(L(groupCfg().greeting))} ${esc(S.name || 'friend')} ${S.classGroup === 'junior' ? '😊' : '👋'}</h1>
+        <p class="hero__title" id="titleTxt">${esc(S.locale === 'hi' ? groupTitleFor(lvl)[2] : groupTitleFor(lvl)[1])}</p>
+        <div class="xpline"><b id="xpNow">0</b><small>/ ${band.toLocaleString()} XP</small></div>
+        <div class="bar"><div class="bar__fill" id="barFill" style="width:0%"></div></div>
+        <div class="week">
+          ${days.map((d, i) => `<div class="week__day ${S.week[i] ? 'hit' : ''} ${i === 6 ? 'today' : ''}"><b>${S.week[i] ? '🔥' : '·'}</b>${d}</div>`).join('')}
+        </div>
+      </div>
+    </section>
+
+    <section class="sec stats stagger">
+      <button class="card stat card--tap" style="--i:0;text-align:left" data-go="board"><div class="stat__k">#${classRank()}</div><div class="stat__l">${esc(t('inClass'))} ›</div></button>
+      <div class="card stat" style="--i:1"><div class="stat__k">${S.badges.length}</div><div class="stat__l">${esc(t('badgesEarned'))}</div></div>
+      <div class="card stat" style="--i:2"><div class="stat__k">${S.toolsSeen.length}</div><div class="stat__l">${esc(t('toolsTried'))}</div></div>
+      <div class="card stat" style="--i:3"><div class="stat__k">${Math.max(S.best, S.streak)}</div><div class="stat__l">${esc(t('bestStreak'))}</div></div>
+    </section>
+    ${starterCard()}
+
+    <section class="sec reveal">
+      <div class="sec-head"><h2>${esc(t('todayMission'))}</h2></div>
+      <div class="mission">
+        <div class="mission__icon">🎯</div>
+        <div class="mission__body">
+          <p class="mission__eyebrow">${esc(t('challengeOfDay'))}</p>
+          <h3 class="mission__title">${esc(L(quest.t))}</h3>
+          <p class="mission__desc">${esc(L(quest.d))}</p>
+        </div>
+        <button class="btn ${questDone ? 'btn--done' : 'btn--primary'}" id="questBtn" ${questDone ? 'disabled' : ''}>
+          ${questDone ? '✓ ' + esc(t('done')) : esc(t('complete')) + ' · +200 XP'}
+        </button>
+      </div>
+    </section>
+
+    ${S.timeline && S.timeline.length ? `<section class="sec reveal">
+      <button class="card card--tap voyage-teaser" data-go="voyage">
+        <span class="voyage-teaser__sky" aria-hidden="true">
+          ${Array.from({ length: 14 }, (_, i) => `<span class="star" style="left:${(i*29)%100}%;top:${(i*47)%100}%;animation-delay:${((i%4)*0.6).toFixed(1)}s"></span>`).join('')}
+        </span>
+        <span class="voyage-teaser__rocket">\ud83d\ude80</span>
+        <span class="voyage-teaser__body">
+          <b>${esc(t('voyageOpen'))}</b>
+          <span>${S.timeline.length} ${esc(t('voyageStops'))} \u00b7 ${esc(t('level'))} ${levelForXp(S.xp)}</span>
+        </span>
+        <span class="voyage-teaser__go">\u203a</span>
+      </button>
+    </section>` : ''}
+
+    ${S.lastChapter ? `<section class="sec reveal">
+      <div class="sec-head"><h2>${esc(t('continueChapter'))}</h2></div>
+      <button class="card card--tap tool" data-continuechapter="1">
+        <span class="tool__emoji">📖</span>
+        <span class="tool__body">
+          <span class="tool__name">${esc(L(S.lastChapter.title))}</span>
+          <span class="tool__meta">${esc(L(CURRICULUM[S.lastChapter.board]?.classes[S.lastChapter.cls]?.[S.lastChapter.subject]?.label || {}))}</span>
+        </span>
+        <span class="tool__go">›</span>
+      </button>
+    </section>` : ''}
+
+    ${next ? `<section class="sec reveal">
+      <div class="sec-head"><h2>${esc(t('continueLearning'))}</h2></div>
+      <button class="card card--tap tool" data-tool="${next.slug}">
+        <span class="tool__emoji">${next.e}</span>
+        <span class="tool__body">
+          <span class="tool__name">${esc(L(next.n))}</span>
+          <span class="tool__meta">${esc(L(next.d))}</span>
+        </span>
+        <span class="tool__go">›</span>
+      </button>
+    </section>` : ''}
+  </div>`;
+}
+
+function afterHome() {
+  const lvl = levelForXp(S.xp);
+  const bs = xpForLevel(lvl), be = xpForLevel(lvl + 1);
+  const into = S.xp - bs, frac = (S.xp - bs) / (be - bs);
+  const R = 56, CIRC = 2 * Math.PI * R;
+  const ring = $('#ringFill');
+  if (ring) {
+    ring.style.strokeDasharray = CIRC;
+    ring.style.strokeDashoffset = CIRC;
+    requestAnimationFrame(() => { ring.style.strokeDashoffset = CIRC * (1 - Math.min(1, frac)); });
+  }
+  requestAnimationFrame(() => { const b = $('#barFill'); if (b) b.style.width = (frac * 100) + '%'; });
+  const xn = $('#xpNow'); if (xn) countTo(xn, 0, into);
+
+  const qb = $('#questBtn');
+  if (qb) qb.onclick = () => {
+    S.quests++; S.questDoneOn = new Date().toDateString();
+    S.week[6] = 1; save();
+    pushEvent('quest_completed', {});
+    gain(XP.quest, t('challengeOfDay'));
+    render();
+  };
+
+  document.querySelectorAll('[data-startergo]').forEach(b => b.onclick = () => {
+    haptic(8); go(b.dataset.startergo);
+  });
+
+  const cc = $('[data-continuechapter]');
+  if (cc) cc.onclick = () => {
+    const lc = S.lastChapter;
+    haptic(8);
+    pushHash('curriculum', { b: lc.board, c: lc.cls, s: lc.subject, ch: lc.chapterSlug });
+  };
+}
+
+/* -------------------------------------------------------------- explore */
+/* Category-first: "what do you want to make today" rather than a flat list
+   of 50+ tools — Section 4.1's explicit ask. Drilling into a category shows
+   its tools; tapping a tool opens the same sheet + quiz flow as before. */
+
+function viewExplore() {
+  S.exploreCat = hashParams().cat || null;
+  const openCat = S.exploreCat;
+
+  if (!openCat) {
+    return `<div class="view">
+      <div class="sec-head"><h2>${esc(t('whatToMake'))}</h2><p>${esc(t('tapCategory'))}</p></div>
+      <div class="cat-grid stagger">
+        ${CATS.map((c, i) => {
+          const count = groupTools().filter(x => x.cat === c.k).length;
+          if (count === 0) return '';
+          return `<button class="card card--tap cat-tile" style="--i:${i};--c:${c.c};--c2:${c.c2}" data-opencat="${c.k}">
+            <span class="cat-tile__emoji">${c.emoji}</span>
+            <span class="cat-tile__name">${esc(L(c))}</span>
+            <span class="cat-tile__count">${count} ${esc(count === 1 ? t('toolCountOne') : t('toolCount'))}</span>
+          </button>`;
+        }).join('')}
+      </div>
+      <div class="sec reveal" style="margin-top:22px">
+        <button class="btn btn--ghost btn--block" data-opencat="__all">${esc(t('allTools'))} (${groupTools().length})</button>
+      </div>
+    </div>`;
+  }
+
+  const cat = CAT_BY_KEY.get(openCat);
+  const list = openCat === '__all' ? groupTools() : groupTools().filter(x => x.cat === openCat);
+
+  return `<div class="view">
+    <div class="crumbs">
+      <button data-opencat="">${esc(t('backToCategories'))}</button>
+      <span class="sep">/</span>
+      <span class="now">${openCat === '__all' ? esc(t('allTools')) : esc(L(cat))}</span>
+    </div>
+    ${openCat !== '__all' ? `<p class="muted" style="font-weight:600;margin-bottom:14px">${esc(L(cat.blurb))} ${esc(L(cat.example))}</p>` : ''}
+    ${list.length > 6 ? `<div class="field"><input class="input" id="toolSearch" placeholder="🔍 ${esc(t('searchTools'))}" autocomplete="off"/></div>` : ''}
+    <div class="path" id="toolPath">
+      ${list.map((x, i) => {
+        const score = S.toolScores[x.slug];
+        const seen = S.toolsSeen.includes(x.slug);
+        const state = score >= 80 ? 'done' : (seen ? 'next' : '');
+        const cat = CAT_BY_KEY.get(x.cat);
+        const label = score >= 80 ? t('mastered')
+          : seen ? t('explored')
+          : (cat ? L(cat) : t('locked'));
+        const tc = CAT_BY_KEY.get(x.cat);
+        return `<div class="node ${state}" style="--i:${i};--c:${tc ? tc.c : 'var(--violet)'};--c2:${tc ? tc.c2 : 'var(--violet)'}" data-search="${esc(L(x.n)).toLowerCase()}">
+          <button class="card card--tap tool" data-tool="${x.slug}">
+            <span class="tool__emoji">${x.e}</span>
+            <span class="tool__body">
+              <span class="tool__name">${esc(L(x.n))}</span>
+              <span class="tool__meta">${esc(label)}${score != null ? ' · ' + score + '%' : ''}</span>
+              ${score != null ? `<span class="tool__mastery bar bar--thin bar--sprout"><span class="bar__fill" style="width:${score}%"></span></span>` : ''}
+            </span>
+            <span class="tool__go">›</span>
+          </button>
+        </div>`;
+      }).join('')}
+    </div>
+    <p class="muted" id="noToolsMsg" style="display:none;text-align:center;padding:24px;font-weight:600">🔍 ${S.locale==='hi'?'कोई टूल नहीं मिला':'No tools found'}</p>
+    <p class="page-floor">${list.length} ${esc(list.length === 1 ? t('toolCountOne') : t('toolCount'))} ${esc(t('libraryFooter'))}</p>
+  </div>`;
+}
+
+function afterExplore() {
+  document.querySelectorAll('[data-opencat]').forEach(b => b.onclick = () => {
+    haptic(8); pushHash('explore', { cat: b.dataset.opencat || '' });
+  });
+  const search = $('#toolSearch');
+  if (search) search.oninput = () => {
+    const q = search.value.trim().toLowerCase();
+    const nodes = document.querySelectorAll('#toolPath .node');
+    let visible = 0;
+    nodes.forEach(n => {
+      const match = !q || n.dataset.search.includes(q);
+      n.style.display = match ? '' : 'none';
+      if (match) visible++;
+    });
+    const empty = $('#noToolsMsg');
+    if (empty) empty.style.display = visible === 0 ? '' : 'none';
+  };
+}
+
+function toolSheet(slug, opts) {
+  const x = TOOL_BY_SLUG.get(slug);
+  if (!x) return;
+  const qs = x.quiz || GENERIC_QUIZ;
+  const score = S.toolScores[slug];
+  const fromChapter = opts && opts.chapterCtx;
+
+  sheet(`
+    <div style="text-align:center">
+      <div style="font-size:52px;line-height:1">${x.e}</div>
+      <h2 style="font-size:25px;margin-top:6px">${esc(L(x.n))}</h2>
+      <p class="muted" style="font-weight:600;margin-top:4px">${esc(L(x.d))}</p>
+      ${fromChapter ? `<p style="margin-top:10px"><button class="guard-chip" id="guardChipBtn" type="button">🛡️ ${esc(t('guardrails'))}</button></p>
+        <p class="muted" style="font-size:13px;margin-top:6px;font-weight:600">${esc(t('practicingWithin'))}: ${esc(fromChapter)}</p>` : ''}
+    </div>
+    <div class="card" style="margin-top:18px;background:var(--surface-2)">
+      <p style="font-size:13px;font-weight:900;letter-spacing:1.2px;text-transform:uppercase;color:var(--dim)">${esc(t('tryPrompt'))}</p>
+      <p class="mono" style="margin-top:7px;font-size:15px;line-height:1.5">${esc(opts && opts.promptOverride ? opts.promptOverride : L(x.prompt))}</p>
+      <button class="btn btn--ghost btn--block" style="margin-top:12px" id="copyPrompt">📋 ${esc(t('tryPrompt'))}</button>
+    </div>
+    ${score != null ? `<p style="text-align:center;margin-top:14px;font-weight:800">${esc(t('yourScore'))}: ${score}%</p>` : ''}
+    <button class="btn btn--violet btn--block" style="margin-top:16px" id="startQuiz">
+      ${esc(t('startQuiz'))} · ${qs.length} ${esc(t('quizIntro'))}
+    </button>
+  `, (node, close) => {
+    node.querySelector('#copyPrompt').onclick = () => {
+      const text = opts && opts.promptOverride ? opts.promptOverride : L(x.prompt);
+      try { navigator.clipboard.writeText(text); } catch {}
+      toast(t('copied')); haptic();
+      if (!S.toolsSeen.includes(slug)) { S.toolsSeen.push(slug); save(); logEvent('tool', L(x.n), x.e); pushEvent('tool_explored', { slug }); gain(XP.tool, L(x.n)); }
+    };
+    node.querySelector('#startQuiz').onclick = () => {
+      if (!S.toolsSeen.includes(slug)) { S.toolsSeen.push(slug); save(); logEvent('tool', L(x.n), x.e); pushEvent('tool_explored', { slug }); }
+      close(); go('quiz', slug);
+    };
+    const guardBtn = node.querySelector('#guardChipBtn');
+    if (guardBtn) guardBtn.onclick = () => {
+      sheet(`
+        <h2 style="font-size:21px;margin-bottom:10px">🛡️ ${esc(t('guardrailsSheetTitle'))}</h2>
+        <p style="font-size:15px;line-height:1.6;margin-bottom:14px">${esc(t('guardrailsSheetBody'))}</p>
+        <div class="notice-box"><span class="notice-box__icon">ℹ️</span><span>${esc(t('guardrailsHonesty'))}</span></div>
+      `);
+    };
+  });
+}
+
+/* -------------------------------------------------------------- quiz player */
+
+let quizState = null;
+
+function viewQuiz() {
+  const slug = quizArg || S.lastQuiz;
+  const x = TOOL_BY_SLUG.get(slug);
+  if (!x) { go('explore'); return '<div></div>'; }
+  S.lastQuiz = slug;
+  const qs = x.quiz || GENERIC_QUIZ;
+
+  if (!quizState || quizState.slug !== slug) quizState = { slug, i: 0, right: 0, picked: null, qs };
+
+  if (quizState.i >= qs.length) return quizResults(x, quizState);
+
+  const q = qs[quizState.i];
+  const keys = ['A', 'B', 'C', 'D'];
+
+  return `<div class="view">
+    <div class="quiz__prog">
+      <button class="icon-btn" id="quizBackBtn">←</button>
+      <div style="flex:1">
+        <div class="bar bar--thin"><div class="bar__fill" style="width:${(quizState.i / qs.length) * 100}%"></div></div>
+      </div>
+      <span class="chip">${quizState.i + 1}/${qs.length}</span>
+    </div>
+    <p class="muted" style="font-weight:800;font-size:14px">${x.e} ${esc(L(x.n))}</p>
+    <h2 class="quiz__q">${esc(L(q.q))}</h2>
+    <div id="opts">
+      ${q.o.map((o, i) => `<button class="opt" data-opt="${i}"><span class="opt__key">${keys[i]}</span>${esc(L(o))}</button>`).join('')}
+    </div>
+    <div id="explainSlot"></div>
+  </div>`;
+}
+
+function afterQuiz() {
+  if (!quizState || quizState.i >= quizState.qs.length) {
+    const b = $('#quizDone'); if (b) b.onclick = () => { quizState = null; history.back(); };
+    const r = $('#quizRetry'); if (r) r.onclick = () => { quizState = { slug: quizState.slug, i: 0, right: 0, picked: null, qs: quizState.qs }; render(); };
+    return;
+  }
+  const backBtn = $('#quizBackBtn');
+  if (backBtn) backBtn.onclick = () => history.back();
+  const q = quizState.qs[quizState.i];
+  document.querySelectorAll('[data-opt]').forEach(btn => {
+    btn.onclick = () => {
+      const pick = +btn.dataset.opt;
+      const ok = pick === q.a;
+      if (ok) { quizState.right++; chime([659.25, 987.77]); haptic(20); }
+      else { chime([311.13]); haptic(60); }
+
+      document.querySelectorAll('[data-opt]').forEach(b => {
+        b.disabled = true;
+        if (+b.dataset.opt === q.a) b.classList.add('right');
+        else if (+b.dataset.opt === pick) b.classList.add('wrong');
+      });
+
+      const slot = $('#explainSlot');
+      slot.innerHTML = `<div class="explain"><b>${ok ? '✅ ' + esc(t('correct')) : '💡'}</b> ${esc(L(q.why))}</div>
+        <button class="btn btn--violet btn--block" id="nextQ">
+          ${quizState.i + 1 >= quizState.qs.length ? esc(t('seeResults')) : esc(t('next'))}
+        </button>`;
+      slot.querySelector('#nextQ').onclick = () => { quizState.i++; render(); };
+      slot.scrollIntoView?.({ behavior: reduced() ? 'auto' : 'smooth', block: 'nearest' });
+    };
+  });
+}
+
+function quizResults(x, qz) {
+  const pct = Math.round((qz.right / qz.qs.length) * 100);
+  const passed = pct >= 60, mastered = pct >= 80;
+  const prev = S.toolScores[x.slug] ?? -1;
+
+  // Sent even when the local score did not improve — the server keeps its own
+  // personal best and decides what, if anything, that is worth. Flagged on the
+  // quiz state object because this is a view function: it re-runs on every
+  // render of the results screen, and an attempt is one attempt.
+  if (!qz.sent) { qz.sent = true; pushEvent('quiz_completed', { slug: x.slug, pct }); }
+
+  if (pct > prev) {
+    S.toolScores[x.slug] = pct;
+    save();
+    if (passed) {
+      const amount = XP.quizPass + (pct === 100 ? XP.quizPerfect : 0);
+      logEvent('quiz', L(x.n), pct + '%');
+      setTimeout(() => gain(amount, L(x.n)), 320);
+    }
+  }
+
+  const R = 62, CIRC = 2 * Math.PI * R;
+  const headline = mastered ? t('quizNailed') : passed ? t('quizSolid') : (pct >= 40 ? t('quizAlmost') : t('quizAgain'));
+  const beat = pct > prev && prev >= 0;
+
+  return `<div class="view">
+    <div class="card result ${mastered ? 'result--mastered' : passed ? 'result--passed' : 'result--retry'}">
+      <div class="result__ringwrap">
+        <svg viewBox="0 0 150 150" class="result__ring" aria-hidden="true">
+          <circle cx="75" cy="75" r="${R}" class="result__track"/>
+          <circle cx="75" cy="75" r="${R}" class="result__fill"
+            style="stroke-dasharray:${CIRC};stroke-dashoffset:${CIRC * (1 - pct / 100)}"/>
+        </svg>
+        <span class="result__pct"><b>${pct}</b><i>%</i></span>
+      </div>
+      <p class="result__head">${esc(headline)}</p>
+      <p class="result__sub">${qz.right} / ${qz.qs.length} ${esc(t('correct')).toLowerCase()} · ${esc(L(x.n))}</p>
+      ${mastered ? `<span class="result__tag">🎓 ${esc(t('mastered'))}</span>`
+        : `<span class="result__tag result__tag--quiet">${esc(t('masteredAt'))}</span>`}
+      ${beat ? `<p class="result__beat">▲ ${esc(t('yourScore'))} ${prev}% → ${pct}%</p>` : ''}
+    </div>
+    <div style="margin-top:16px;display:flex;gap:10px;flex-direction:column">
+      ${!mastered ? `<button class="btn btn--violet btn--block" id="quizRetry">${esc(t('retry'))}</button>` : ''}
+      <button class="btn ${mastered ? 'btn--primary' : 'btn--ghost'} btn--block" id="quizDone">${esc(t('backToPath'))}</button>
+    </div>
+  </div>`;
+}
+
+/* ============================================================================
+   CURRICULUM — Section 3. Board > Class > Subject > Chapter > Prompts.
+   Picker state lives in S.curBoard/curClass/curSubject/curChapter so back/
+   forward and reload land on the right step instead of always resetting.
+   ============================================================================ */
+
+function viewCurriculum() {
+  // The hash is the source of truth for *where in the picker* we are, so
+  // that back/forward (native browser or in-app breadcrumb) always shows
+  // exactly what the URL says. S.cur* mirrors this for the XP/lastChapter
+  // side-effect code elsewhere, which cares about "what did the student
+  // actually open" rather than "what does the address bar say right now."
+  const hp = hashParams();
+  S.curBoard = hp.b || '';
+  S.curClass = hp.c || '';
+  S.curSubject = hp.s || '';
+  S.curChapter = hp.ch || '';
+
+  if (!S.curBoard) return curriculumBoards();
+  const board = CURRICULUM[S.curBoard];
+  if (!board) { return curriculumBoards(); }
+
+  if (!S.curClass) return curriculumClasses(board);
+  const classData = board.classes[S.curClass];
+  if (!classData) { return curriculumClasses(board); }
+
+  if (!S.curSubject) return curriculumSubjects(board, classData);
+  const subject = classData[S.curSubject];
+  if (!subject) { return curriculumSubjects(board, classData); }
+
+  if (!S.curChapter) return curriculumChapters(board, subject);
+  const chapter = subject.chapters.find(c => c.slug === S.curChapter);
+  if (!chapter) { return curriculumChapters(board, subject); }
+
+  return curriculumPrompts(board, subject, chapter);
+}
+
+function curCrumb(steps) {
+  return `<div class="crumbs">${steps.map((s, i) =>
+    i === steps.length - 1
+      ? `<span class="now">${esc(s.label)}</span>`
+      : `<button data-crumb="${s.reset}">${esc(s.label)}</button><span class="sep">/</span>`
+  ).join('')}</div>`;
+}
+
+function curriculumBoards() {
+  return `<div class="view">
+    <div class="sec-head"><h2>${esc(t('curriculum'))}</h2><p>${esc(t('curriculumSub'))}</p></div>
+    <div class="pick-list stagger">
+      ${Object.entries(CURRICULUM).map(([key, b], i) => `
+        <button class="pick-row" style="--i:${i}" data-board="${key}">
+          <span class="pick-row__emoji">${b.emoji}</span>
+          <span class="pick-row__label">${esc(L(b.label))}</span>
+          ${!b.official ? `<span class="chip chip--volt" style="font-size:11px">${S.locale==='hi'?'नमूना':'sample'}</span>` : ''}
+          <span class="pick-row__go">›</span>
+        </button>`).join('')}
+    </div>
+  </div>`;
+}
+
+/* A student should only ever see classes relevant to their own grade band —
+   showing a nursery student "Class 12" isn't a harmless extra option, it's
+   confusing and makes the whole feature look broken. Boards vary in how much
+   content they have (GSEB is intentionally sparse, flagged elsewhere), so if
+   filtering would leave literally nothing to pick, fall back to the full
+   list rather than dead-ending the student on an empty screen. */
+function bandForClassNum(n) {
+  const v = +n;
+  if (v <= 5) return 'junior';
+  if (v <= 9) return 'middle';
+  return 'senior';
+}
+
+function curriculumClasses(board) {
+  const all = Object.keys(board.classes).sort((a,b) => a - b);
+  const myBand = S.classGroup || 'middle';
+  const scoped = all.filter(c => bandForClassNum(c) === myBand);
+  const classes = scoped.length ? scoped : all;
+
+  return `<div class="view">
+    ${curCrumb([{label: t('backToBoards'), reset:'board'}, {label: L(board.label)}])}
+    <div class="sec-head"><h2>${esc(t('selectClass'))}</h2></div>
+    ${!scoped.length ? `<div class="notice-box" style="margin-bottom:14px"><span class="notice-box__icon">ℹ️</span><span>${esc(S.locale==='hi'
+        ? 'इस बोर्ड में अभी आपकी कक्षा के लिए सामग्री नहीं है — नीचे सभी उपलब्ध कक्षाएँ दिखाई गई हैं।'
+        : 'This board doesn\u2019t have content for your class band yet — showing everything available so far.')}</span></div>` : ''}
+    <div class="pick-list stagger">
+      ${classes.map((c, i) => `
+        <button class="pick-row" style="--i:${i}" data-class="${c}">
+          <span class="pick-row__emoji">🎒</span>
+          <span class="pick-row__label">${S.locale==='hi'?'कक्षा':'Class'} ${c}</span>
+          <span class="pick-row__go">›</span>
+        </button>`).join('')}
+    </div>
+  </div>`;
+}
+
+function curriculumSubjects(board, classData) {
+  const subjects = Object.entries(classData);
+  return `<div class="view">
+    ${curCrumb([{label: t('backToBoards'), reset:'board'}, {label: L(board.label), reset:'class'}, {label: (S.locale==='hi'?'कक्षा':'Class')+' '+S.curClass}])}
+    <div class="sec-head"><h2>${esc(t('selectSubject'))}</h2></div>
+    <div class="pick-list stagger">
+      ${subjects.map(([key, sub], i) => `
+        <button class="pick-row" style="--i:${i}" data-subject="${key}">
+          <span class="pick-row__emoji">${sub.emoji}</span>
+          <span class="pick-row__label">${esc(L(sub.label))}</span>
+          <span class="pick-row__meta">${sub.chapters.length} ${S.locale==='hi'?'अध्याय':'chapters'}</span>
+          <span class="pick-row__go">›</span>
+        </button>`).join('')}
+    </div>
+  </div>`;
+}
+
+function curriculumChapters(board, subject) {
+  return `<div class="view">
+    ${curCrumb([{label: t('backToBoards'), reset:'board'}, {label: L(board.label), reset:'class'}, {label: (S.locale==='hi'?'कक्षा':'Class')+' '+S.curClass, reset:'subject'}, {label: L(subject.label)}])}
+    <div class="sec-head"><h2>${esc(t('selectChapter'))}</h2></div>
+    ${!board.official ? `<div class="notice-box" style="margin-bottom:14px"><span class="notice-box__icon">ℹ️</span><span>${esc(t('gsebSampleNote'))}</span></div>` : ''}
+    <div class="pick-list stagger">
+      ${subject.chapters.map((c, i) => `
+        <button class="pick-row" style="--i:${i}" data-chapter="${c.slug}">
+          <span class="pick-row__emoji">📄</span>
+          <span class="pick-row__label">${esc(L(c.title))}</span>
+          ${S.chaptersUsed.includes(c.slug) ? `<span class="chip chip--sprout" style="font-size:11px">✓</span>` : ''}
+          <span class="pick-row__go">›</span>
+        </button>`).join('')}
+    </div>
+  </div>`;
+}
+
+function curriculumPrompts(board, subject, chapter) {
+  return `<div class="view">
+    ${curCrumb([{label: t('backToBoards'), reset:'board'}, {label: L(board.label), reset:'class'}, {label: (S.locale==='hi'?'कक्षा':'Class')+' '+S.curClass, reset:'subject'}, {label: L(subject.label), reset:'chapter'}, {label: L(chapter.title)}])}
+
+    <div class="card card--ruled chapter-card reveal">
+      <p class="chapter-card__title">${esc(L(chapter.title))}</p>
+      <p class="muted" style="font-size:13px;font-weight:700">${esc(L(board.label))} · ${S.locale==='hi'?'कक्षा':'Class'} ${S.curClass} · ${esc(L(subject.label))}</p>
+      <a href="${chapter.url}" target="_blank" rel="noopener noreferrer" class="btn btn--ghost btn--block" style="margin-top:14px;text-decoration:none">
+        📘 ${esc(t('readChapter'))}
+      </a>
+      ${!board.official ? `<div class="notice-box" style="margin-top:12px"><span class="notice-box__icon">ℹ️</span><span>${esc(t('gsebSampleNote'))}</span></div>` : ''}
+    </div>
+
+    <div class="sec-head" style="margin-top:20px"><h2>${esc(t('promptsFor'))} "${esc(L(chapter.title))}"</h2></div>
+    <div class="card reveal">
+      ${chapter.prompts.map((p, i) => {
+        const tool = TOOL_BY_SLUG.get(p.tool);
+        if (!tool) return '';
+        return `<div class="prompt-item">
+          <span class="prompt-item__tool">${tool.e}</span>
+          <span class="prompt-item__text">${esc(L(p.text))}</span>
+          <button class="prompt-item__use" data-useprompt="${i}">${esc(t('usePrompt'))} →</button>
+        </div>`;
+      }).join('')}
+    </div>
+  </div>`;
+}
+
+function afterCurriculum() {
+  document.querySelectorAll('[data-board]').forEach(b => b.onclick = () => {
+    haptic(8); pushHash('curriculum', { b: b.dataset.board });
+  });
+  document.querySelectorAll('[data-class]').forEach(b => b.onclick = () => {
+    haptic(8); pushHash('curriculum', { b: S.curBoard, c: b.dataset.class });
+  });
+  document.querySelectorAll('[data-subject]').forEach(b => b.onclick = () => {
+    haptic(8); pushHash('curriculum', { b: S.curBoard, c: S.curClass, s: b.dataset.subject });
+  });
+  document.querySelectorAll('[data-chapter]').forEach(b => b.onclick = () => {
+    const chapterSlug = b.dataset.chapter;
+    const board = CURRICULUM[S.curBoard], subj = board.classes[S.curClass][S.curSubject];
+    const chap = subj.chapters.find(c => c.slug === chapterSlug);
+    S.lastChapter = { board: S.curBoard, cls: S.curClass, subject: S.curSubject, chapterSlug, title: chap.title };
+    if (!S.chaptersUsed.includes(chapterSlug)) {
+      S.chaptersUsed.push(chapterSlug); save();
+      logEvent('chapter', L(chap.title), L(subj.label));
+      pushEvent('curriculum_prompt', { chapterSlug, title: L(chap.title) });
+      gain(XP.curriculumPrompt, t('chapterPracticeXp'));
+    }
+    save(); haptic(8);
+    pushHash('curriculum', { b: S.curBoard, c: S.curClass, s: S.curSubject, ch: chapterSlug });
+  });
+  document.querySelectorAll('[data-crumb]').forEach(b => b.onclick = () => {
+    const level = b.dataset.crumb;
+    const params = { b: S.curBoard, c: S.curClass, s: S.curSubject, ch: S.curChapter };
+    if (level === 'board') { params.b = ''; params.c = ''; params.s = ''; params.ch = ''; }        // -> board list
+    else if (level === 'class') { params.c = ''; params.s = ''; params.ch = ''; }                    // -> class list, same board
+    else if (level === 'subject') { params.s = ''; params.ch = ''; }                                  // -> subject list, same board+class
+    else if (level === 'chapter') { params.ch = ''; }                                                  // -> chapter list, same board+class+subject
+    haptic(8); pushHash('curriculum', params);
+  });
+  document.querySelectorAll('[data-useprompt]').forEach(b => b.onclick = () => {
+    const board = CURRICULUM[S.curBoard], subject = board.classes[S.curClass][S.curSubject];
+    const chapter = subject.chapters.find(c => c.slug === S.curChapter);
+    const p = chapter.prompts[+b.dataset.useprompt];
+    const chapterLabel = `${L(subject.label)} · ${L(chapter.title)}`;
+    toolSheet(p.tool, { chapterCtx: chapterLabel, promptOverride: L(p.text) });
+  });
+}
+
+/* ===========================================================================
+   AI PROMPT LIBRARY — view layer
+   Structural navigation (which tab, which template, which class being
+   browsed) lives in the hash, exactly like Curriculum and Explore, so the
+   back button steps up one level correctly instead of exiting the whole
+   feature. Form field VALUES (topic, chapter name someone is typing) stay
+   in a plain local variable — putting keystrokes in the hash would push a
+   new history entry per character, which would make the back button
+   undo one letter at a time.
+   =========================================================================== */
+
+let promptDraft = { topic: '', cls: '', subject: '', chapter: '', count: '8' };
+let justPickedTemplate = false;
+
+function viewPromptLibrary() {
+  const hp = hashParams();
+  const tab = hp.tab || 'build';
+
+  return `<div class="view">
+    <div class="sec-head"><h2>${esc(t('promptLibrary'))}</h2><p>${esc(t('promptLibrarySub'))}</p></div>
+    <div class="segment segment--scroll" style="margin-bottom:16px">
+      <button class="${tab === 'build' ? 'on' : ''}" data-ptab="build">🪄 ${esc(t('buildPrompt'))}</button>
+      <button class="${tab === 'examples' ? 'on' : ''}" data-ptab="examples">📚 ${esc(t('browseExamples'))}</button>
+      <button class="${tab === 'tools' ? 'on' : ''}" data-ptab="tools">🧰 ${esc(t('toolDirectory'))}</button>
+      <button class="${tab === 'history' ? 'on' : ''}" data-ptab="history">🕘 ${esc(t('history'))}${S.promptHistory.length ? ' · ' + S.promptHistory.length : ''}</button>
+      <button class="${tab === 'sandbox' ? 'on' : ''}" data-ptab="sandbox">🧪 ${esc(t('sandbox'))}</button>
+    </div>
+    ${tab === 'examples' ? promptExamplesView(hp.cls || '')
+      : tab === 'tools' ? promptToolsView()
+      : tab === 'history' ? promptHistoryView()
+      : tab === 'sandbox' ? viewPromptSandbox()
+      : promptBuildView(hp.tpl || '')}
+  </div>`;
+}
+
+function promptBuildView(tplKey) {
+  const tpl = PROMPT_TEMPLATE_BY_KEY.get(tplKey);
+
+  if (!tpl) {
+    const doneCount = S.promptTemplatesUsed.length;
+    return `<div class="card reveal" style="padding:14px 16px;margin-bottom:16px;display:flex;align-items:center;gap:12px">
+      <span style="font-family:var(--font-mono);font-weight:700;font-size:15px;white-space:nowrap">${doneCount}/6</span>
+      <div class="bar bar--thin" style="flex:1"><div class="bar__fill" style="width:${(doneCount/6)*100}%"></div></div>
+    </div>
+    <div class="tpl-grid stagger">
+      ${PROMPT_TEMPLATES.map((t, i) => {
+        const tried = S.promptTemplatesUsed.includes(t.key);
+        return `<button class="card card--tap tpl-tile ${tried ? 'tpl-tile--done' : ''}" style="--i:${i};--c:${t.c};--c2:${t.c2}" data-picktpl="${t.key}">
+          ${tried ? '<span class="tpl-tile__check">✓</span>' : ''}
+          <span class="tpl-tile__emoji">${t.emoji}</span>
+          <span class="tpl-tile__name">${esc(L(t.n))}</span>
+        </button>`;
+      }).join('')}
+    </div>
+    <div class="card reveal" style="margin-top:18px">
+      <p style="font-size:13px;font-weight:900;letter-spacing:1px;text-transform:uppercase;color:var(--dim);margin-bottom:10px">${esc(t('threeSteps'))}</p>
+      <ul class="step-list">
+        <li>${esc(t('step1'))}</li>
+        <li>${esc(t('step2'))}</li>
+        <li>${esc(t('step3'))}</li>
+      </ul>
+    </div>`;
+  }
+
+  // Pick a sensible starting class for this student's band the first time
+  // they land on a template with no class chosen yet, so the form isn't
+  // completely blank — matches how onboarding pre-fills sensible defaults.
+  if (!promptDraft.cls) {
+    promptDraft.cls = S.classGroup === 'senior' ? '11' : S.classGroup === 'junior' ? '6' : '8';
+  }
+  if (promptDraft.tplKey !== tplKey) { promptDraft = { topic: '', cls: promptDraft.cls, subject: '', chapter: '', count: '8', tplKey }; }
+
+  const showJuniorNote = S.classGroup === 'junior';
+
+  return `<div class="crumbs">
+      <button data-ptab="build" data-cleartpl="1">${esc(t('chooseOutputType'))}</button>
+      <span class="sep">/</span>
+      <span class="now">${tpl.emoji} ${esc(L(tpl.n))}</span>
+    </div>
+    <p class="muted" style="font-weight:600;margin-bottom:14px">${esc(L(tpl.blurb))}</p>
+    ${showJuniorNote ? `<div class="notice-box" style="margin-bottom:14px"><span class="notice-box__icon">ℹ️</span><span>${esc(t('junior6to12Note'))}</span></div>` : ''}
+
+    <div class="card reveal">
+      <p style="font-size:13px;font-weight:900;letter-spacing:1px;text-transform:uppercase;color:var(--dim);margin-bottom:12px">${esc(t('fillDetails'))}</p>
+      <div class="field">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px">
+          <label style="margin-bottom:0">${esc(t('fieldTopic'))}</label>
+          <button type="button" id="pfSurprise" class="chip" style="font-size:12px">🎲 ${esc(t('surpriseMe'))}</button>
+        </div>
+        <div class="voice-field">
+          <input class="input" id="pfTopic" value="${esc(promptDraft.topic)}" placeholder="e.g. Photosynthesis" autocomplete="off"/>
+          <button type="button" class="voice-mic" id="pfMic" data-voicetarget="pfTopic" aria-label="${esc(t('voiceInput'))}" hidden>${icon('mic', 17)}</button>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div class="field">
+          <label>${esc(t('fieldClass'))}</label>
+          <select class="input" id="pfClass">
+            ${[6,7,8,9,10,11,12].map(n => `<option value="${n}" ${String(n)===promptDraft.cls?'selected':''}>${n}</option>`).join('')}
+          </select>
+        </div>
+        <div class="field">
+          <label>${esc(t('fieldSubject'))}</label>
+          <input class="input" id="pfSubject" value="${esc(promptDraft.subject)}" placeholder="e.g. Science" autocomplete="off"/>
+        </div>
+      </div>
+      <div class="field">
+        <label>${esc(t('fieldChapter'))}</label>
+        <input class="input" id="pfChapter" value="${esc(promptDraft.chapter)}" placeholder="e.g. Life Processes" autocomplete="off"/>
+      </div>
+      ${tpl.fields.includes('count') ? `<div class="field">
+        <label>${esc(t('fieldSlideCount'))}</label>
+        <input class="input" id="pfCount" type="number" min="4" max="15" value="${esc(promptDraft.count)}"/>
+      </div>` : ''}
+    </div>
+
+    <div class="sec-head" style="margin-top:18px"><h2>${esc(t('yourPrompt'))}</h2></div>
+    <div id="promptPreviewSlot"></div>
+
+    <div class="sec-head" style="margin-top:18px"><h2>${esc(t('recommendedTools'))}</h2></div>
+    <div class="tool-pill-row">
+      ${tpl.tools.map(x => `<a class="tool-pill" href="${x.url}" target="_blank" rel="noopener noreferrer">${esc(x.n)}</a>`).join('')}
+    </div>
+    <p class="muted" style="font-size:12px;margin-top:16px">🌏 ${esc(t('promptEnglishNote'))}</p>`;
+}
+
+function promptFieldsFilled() {
+  return promptDraft.topic.trim() && promptDraft.subject.trim() && promptDraft.chapter.trim();
+}
+
+function renderPromptPreview() {
+  const slot = $('#promptPreviewSlot');
+  if (!slot) return;
+  const tpl = PROMPT_TEMPLATE_BY_KEY.get(promptDraft.tplKey);
+  if (!tpl) return;
+
+  if (!promptFieldsFilled()) {
+    slot.innerHTML = `<div class="prompt-box prompt-box--empty"><p class="prompt-box__text">✍️ ${esc(t('fillToGenerate'))}</p></div>`;
+    return;
+  }
+  const text = tpl.build(promptDraft);
+  slot.innerHTML = `<div class="prompt-box prompt-box--pulse">
+      <p class="prompt-box__label">📋 COPY-PASTE PROMPT</p>
+      <p class="prompt-box__text" id="pfPromptText">${esc(text)}</p>
+    </div>
+    <button class="btn btn--primary btn--block" style="margin-top:12px" id="pfCopyBtn">📋 ${esc(t('copyPromptBtn'))}</button>`;
+
+  $('#pfCopyBtn').onclick = () => {
+    try { navigator.clipboard.writeText(text); } catch {}
+    toast('✨ ' + t('promptCopied')); haptic();
+    recordPromptHistory(tpl.key, text, promptDraft.topic);
+    if (!S.promptTemplatesUsed.includes(tpl.key)) {
+      S.promptTemplatesUsed.push(tpl.key); save();
+      logEvent('prompt', L(tpl.n), promptDraft.topic || '');
+      pushEvent('prompt_built', { tplKey: tpl.key });
+      gain(XP.promptBuilt, L(tpl.n));
+    }
+  };
+}
+
+function promptExamplesView(clsParam) {
+  const cls = +clsParam || 0;
+
+  if (!cls) {
+    const showJuniorNote = S.classGroup === 'junior';
+    return `${showJuniorNote ? `<div class="notice-box" style="margin-bottom:14px"><span class="notice-box__icon">ℹ️</span><span>${esc(t('junior6to12Note'))}</span></div>` : ''}
+    <div class="pick-list stagger">
+      ${PROMPT_EXAMPLES.map((c, i) => `
+        <button class="pick-row" style="--i:${i}" data-pickexcls="${c.cls}">
+          <span class="pick-row__emoji">🎒</span>
+          <span class="pick-row__label">${S.locale==='hi'?'कक्षा':'Class'} ${c.cls}</span>
+          <span class="pick-row__meta">${c.items.length}</span>
+          <span class="pick-row__go">›</span>
+        </button>`).join('')}
+    </div>`;
+  }
+
+  const group = PROMPT_EXAMPLES.find(c => c.cls === cls);
+  if (!group) return promptExamplesView('');
+
+  return `<div class="crumbs">
+      <button data-ptab="examples" data-clearcls="1">${esc(t('browseExamples'))}</button>
+      <span class="sep">/</span>
+      <span class="now">${S.locale==='hi'?'कक्षा':'Class'} ${cls}</span>
+    </div>
+    <div class="notice-box" style="margin-bottom:14px"><span class="notice-box__icon">ℹ️</span><span>${esc(t('promptLibrarySampleNote'))}</span></div>
+    <div class="pick-list stagger">
+      ${group.items.map((it, i) => {
+        const tpl = PROMPT_TEMPLATE_BY_KEY.get(it.tpl);
+        return `<button class="pick-row" style="--i:${i}" data-viewexample="${i}">
+          <span class="pick-row__emoji">${tpl.emoji}</span>
+          <span class="pick-row__label">${esc(it.subject)} — ${esc(it.topic)}</span>
+          <span class="pick-row__go">›</span>
+        </button>`;
+      }).join('')}
+    </div>`;
+}
+
+/* ---- Prompt History. Capped at PROMPT_HISTORY_MAX entries: this shares
+   localStorage with the student's actual progress, and an unbounded log
+   would slowly crowd out data that matters far more than an old prompt. ---- */
+
+function recordPromptHistory(tplKey, text, topic) {
+  S.promptHistory = S.promptHistory.filter(h => h.text !== text); // re-copying moves it to the top rather than duplicating
+  S.promptHistory.unshift({
+    id: 'h' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5),
+    tplKey, text, topic: topic || '', ts: Date.now()
+  });
+  if (S.promptHistory.length > PROMPT_HISTORY_MAX) S.promptHistory.length = PROMPT_HISTORY_MAX;
+  save();
+}
+
+function promptHistoryView() {
+  if (!S.promptHistory.length) {
+    return `<div class="card empty-state reveal">
+      <div class="empty-state__emoji">🕘</div>
+      <p class="empty-state__title">${esc(t('noHistory'))}</p>
+      <p class="empty-state__sub">${esc(t('noHistorySub'))}</p>
+    </div>`;
+  }
+  return `<div class="stagger">
+      ${S.promptHistory.map((h, i) => {
+        const tpl = PROMPT_TEMPLATE_BY_KEY.get(h.tplKey);
+        return `<div class="card card--ruled hist-item reveal" style="--i:${i}">
+          <div class="hist-item__head">
+            <span>${tpl ? tpl.emoji : '📝'}</span>
+            <span class="hist-item__type">${tpl ? esc(L(tpl.n)) : esc(h.tplKey)}</span>
+            <span class="hist-item__when">${esc(timeAgo(h.ts))}</span>
+          </div>
+          <p class="hist-item__text">${esc(h.text)}</p>
+          <div class="creation-card__actions">
+            <button data-copyhist="${esc(h.id)}">📋 ${esc(t('copyPromptBtn'))}</button>
+            <button data-reusehist="${esc(h.id)}">↺ ${esc(t('reuse'))}</button>
+          </div>
+        </div>`;
+      }).join('')}
+    </div>
+    <button class="btn btn--ghost btn--block" style="margin-top:14px" id="clearHistBtn">${esc(t('clearHistory'))}</button>`;
+}
+
+function promptToolsView() {
+  return `<div class="stagger">
+    ${PROMPT_TEMPLATES.map((tpl, i) => `
+      <div class="card reveal" style="--i:${i};margin-bottom:12px">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px">
+          <span style="font-size:24px">${tpl.emoji}</span>
+          <span style="font-family:var(--font-display);font-weight:700;font-size:16px">${esc(L(tpl.n))}</span>
+        </div>
+        <div class="tool-pill-row">
+          ${tpl.tools.map(x => `<a class="tool-pill" href="${x.url}" target="_blank" rel="noopener noreferrer">${esc(x.n)}</a>`).join('')}
+        </div>
+      </div>`).join('')}
+  </div>`;
+}
+
+/* ===========================================================================
+   PROMPT SANDBOX — practice writing a prompt, get honest checklist feedback
+   ---------------------------------------------------------------------------
+   The wishlist version of this idea was a fake AI chat: type a prompt, see a
+   simulated reply. That is a worse design than it looks — a rule-based reply
+   dressed up as a conversation is exactly the shape of thing a student could
+   mistake for a real answer from a real model, and this app's whole ethic has
+   been "never let a student mistake a template for the real thing" (see the
+   Magic AI Tools notice, the paper-scaffold banner, every honesty comment in
+   this file). So this is not a chat. It is a checklist: it looks at the
+   student's own prompt and tells them, structurally, what a stronger version
+   would include — format, audience, a clear ask, enough topic detail. No
+   response is simulated, invented, or attributed to any AI tool.
+   =========================================================================== */
+
+const SANDBOX_FORMAT_WORDS = /\b(list|table|steps?|paragraph|summary|summarise|summarize|diagram|poem|quiz|chart|outline|bullet points?|points?|story|dialogue|comparison|timeline|सूची|तालिका|चरण|पैराग्राफ|सारांश|आरेख|कविता|क्विज़|चार्ट|बिंदु)\b/i;
+const SANDBOX_AUDIENCE_WORDS = /\b(like i'?m|for a|year[- ]old|class\s*\d+|grade\s*\d+|simple language|simple words|easy words|beginner|kid|child|student|as if|in \w+ words|छोटे बच्चे|आसान भाषा|सरल शब्द|कक्षा\s*\d+|शुरुआती)\b/i;
+const SANDBOX_ASK_WORDS = /^(explain|write|make|create|list|compare|summarise|summarize|design|draw|generate|describe|ask|help|plan|give|show|turn|convert|check|find|suggest|translate|समझाओ|लिखो|बनाओ|सूची|तुलना|सारांश|बताओ|मदद|दो|दिखाओ)/i;
+
+function analyzePromptQuality(raw) {
+  const text = String(raw || '').trim();
+  const words = text.split(/\s+/).filter(Boolean);
+  const wordCount = words.length;
+
+  const checks = [
+    { key: 'length',   pass: wordCount >= 6 },
+    { key: 'ask',      pass: /\?/.test(text) || SANDBOX_ASK_WORDS.test(text) },
+    { key: 'format',   pass: SANDBOX_FORMAT_WORDS.test(text) },
+    { key: 'audience', pass: SANDBOX_AUDIENCE_WORDS.test(text) },
+    // "enough topic detail" — more content than just an instruction verb and
+    // a bare noun. A rough, honest proxy rather than real language
+    // understanding: once the ask/format/audience words are accounted for,
+    // is there still enough left over to be a real, specific topic?
+    { key: 'topic',    pass: wordCount >= 4 && (wordCount - (text.match(SANDBOX_ASK_WORDS) ? 1 : 0)) >= 3 }
+  ];
+
+  const score = checks.filter(c => c.pass).length;
+  const tier = !text ? 'empty' : score >= 4 ? 'strong' : score >= 2 ? 'good' : 'weak';
+  return { text, checks, score, tier, max: checks.length };
+}
+
+function viewPromptSandbox() {
+  const draft = S.sandboxDraft || '';
+  const result = draft.trim() ? analyzePromptQuality(draft) : null;
+
+  const CHECK_LABEL = {
+    length:   { en: 'Long enough to act on', hi: 'काम करने लायक लंबा' },
+    ask:      { en: 'Asks clearly for something', hi: 'स्पष्ट रूप से कुछ माँगता है' },
+    format:   { en: 'Says what format you want', hi: 'बताता है कि किस रूप में चाहिए' },
+    audience: { en: 'Says who it is for / what level', hi: 'बताता है किसके लिए / किस स्तर पर' },
+    topic:    { en: 'Specific enough topic', hi: 'विषय पर्याप्त स्पष्ट है' }
+  };
+  const CHECK_TIP = {
+    length:   { en: 'Say a bit more — a single word or short phrase is hard to act on.', hi: 'थोड़ा और लिखें — एक शब्द से काम करना मुश्किल है।' },
+    ask:      { en: 'Start with what you want done: "Explain…", "List…", "Compare…".', hi: '"समझाओ…", "सूची बनाओ…", "तुलना करो…" जैसे शब्द से शुरू करें।' },
+    format:   { en: 'Say the shape of the answer: a list, a table, a short paragraph, a diagram.', hi: 'उत्तर का रूप बताएँ: सूची, तालिका, छोटा पैराग्राफ, या आरेख।' },
+    audience: { en: 'Say who it is for: "like I\'m 10", "for Class 8", "in simple words".', hi: 'किसके लिए है बताएँ: "जैसे मैं 10 साल का हूँ", "कक्षा 8 के लिए", "आसान शब्दों में"।' },
+    topic:    { en: 'Name the actual topic or chapter, not just a general subject.', hi: 'सामान्य विषय नहीं, असली टॉपिक या अध्याय का नाम लिखें।' }
+  };
+  const TIER_COPY = {
+    weak:   { en: 'Worth another pass', hi: 'एक बार और कोशिश करें' },
+    good:   { en: 'Workable', hi: 'ठीक-ठाक' },
+    strong: { en: 'Ready to use', hi: 'उपयोग के लिए तैयार' }
+  };
+
+  return `<div class="sandbox">
+    <div class="notice-box" style="margin-bottom:16px">
+      <span class="notice-box__icon">🧪</span>
+      <span>${esc(t('sandboxNotice'))}</span>
+    </div>
+
+    <div class="field">
+      <label>${esc(t('sandboxLabel'))}</label>
+      <textarea class="input" id="sbInput" rows="3" placeholder="${esc(t('sandboxPh'))}">${esc(draft)}</textarea>
+    </div>
+    <button class="btn btn--violet btn--block" id="sbCheck">🧪 ${esc(t('sandboxCheck'))}</button>
+
+    ${result ? `
+      <div class="card reveal sandbox-result" style="margin-top:16px">
+        <div class="sandbox-result__head">
+          <span class="sandbox-score sandbox-score--${result.tier}">${result.score}/${result.max}</span>
+          <span class="sandbox-tier">${esc(L(TIER_COPY[result.tier]))}</span>
+        </div>
+        <ul class="sandbox-checks">
+          ${result.checks.map(c => `<li class="sandbox-check ${c.pass ? 'is-pass' : 'is-fail'}">
+            <span class="sandbox-check__mark">${c.pass ? '✓' : '·'}</span>
+            <span class="sandbox-check__body">
+              <span class="sandbox-check__label">${esc(L(CHECK_LABEL[c.key]))}</span>
+              ${!c.pass ? `<span class="sandbox-check__tip">${esc(L(CHECK_TIP[c.key]))}</span>` : ''}
+            </span>
+          </li>`).join('')}
+        </ul>
+      </div>` : ''}
+  </div>`;
+}
+
+function afterPromptSandbox() {
+  const input = $('#sbInput');
+  const btn = $('#sbCheck');
+  if (!input || !btn) return;
+  input.oninput = () => { S.sandboxDraft = input.value; };
+  btn.onclick = () => {
+    S.sandboxDraft = input.value;
+    save();
+    haptic(10);
+    render();
+  };
+}
+
+function afterPromptLibrary() {
+  afterPromptSandbox(); // no-ops itself when the sandbox segment isn't showing
+  document.querySelectorAll('[data-ptab]').forEach(b => b.onclick = () => {
+    haptic(8);
+    if (b.dataset.cleartpl) { pushHash('prompts', { tab: 'build' }); return; }
+    if (b.dataset.clearcls) { pushHash('prompts', { tab: 'examples' }); return; }
+    pushHash('prompts', { tab: b.dataset.ptab });
+  });
+  document.querySelectorAll('[data-picktpl]').forEach(b => b.onclick = () => {
+    haptic(8); justPickedTemplate = true;
+    pushHash('prompts', { tab: 'build', tpl: b.dataset.picktpl });
+  });
+  document.querySelectorAll('[data-pickexcls]').forEach(b => b.onclick = () => {
+    haptic(8); pushHash('prompts', { tab: 'examples', cls: b.dataset.pickexcls });
+  });
+
+  const topicEl = $('#pfTopic'), subjEl = $('#pfSubject'), chapEl = $('#pfChapter'), countEl = $('#pfCount'), clsEl = $('#pfClass');
+  if (topicEl) topicEl.oninput = () => { promptDraft.topic = topicEl.value; renderPromptPreview(); };
+  if (subjEl) subjEl.oninput = () => { promptDraft.subject = subjEl.value; renderPromptPreview(); };
+  if (chapEl) chapEl.oninput = () => { promptDraft.chapter = chapEl.value; renderPromptPreview(); };
+  if (countEl) {
+    countEl.oninput = () => { promptDraft.count = countEl.value; renderPromptPreview(); };
+    countEl.onblur = () => {
+      const clamped = clampSlideCount(countEl.value);
+      countEl.value = clamped; promptDraft.count = String(clamped);
+      renderPromptPreview();
+    };
+  }
+  if (clsEl) clsEl.onchange = () => { promptDraft.cls = clsEl.value; renderPromptPreview(); };
+  if (topicEl || subjEl || chapEl) renderPromptPreview();
+
+  // Autofocus only on the exact transition of "just picked a template" —
+  // never on an incidental re-render like toggling dark mode mid-typing,
+  // which would otherwise rudely steal focus from whatever the student was
+  // actually doing.
+  if (topicEl && justPickedTemplate) { justPickedTemplate = false; topicEl.focus(); }
+
+  // ---- Prompt History handlers ----
+  document.querySelectorAll('[data-copyhist]').forEach(b => b.onclick = () => {
+    const h = S.promptHistory.find(x => x.id === b.dataset.copyhist);
+    if (!h) return;
+    try { navigator.clipboard.writeText(h.text); } catch {}
+    toast('✨ ' + t('promptCopied')); haptic();
+  });
+  document.querySelectorAll('[data-reusehist]').forEach(b => b.onclick = () => {
+    const h = S.promptHistory.find(x => x.id === b.dataset.reusehist);
+    if (!h) return;
+    // Reopen the builder on that template with the topic pre-filled, rather
+    // than just re-copying — "use again" usually means "make one like this".
+    promptDraft = { topic: h.topic || '', cls: promptDraft.cls || '', subject: '', chapter: '', count: '8', tplKey: h.tplKey };
+    justPickedTemplate = true;
+    haptic(8);
+    pushHash('prompts', { tab: 'build', tpl: h.tplKey });
+  });
+  const clearHist = $('#clearHistBtn');
+  if (clearHist) clearHist.onclick = () => {
+    S.promptHistory = []; save(); haptic(20);
+    toast(t('historyCleared')); render();
+  };
+
+  const surpriseBtn = $('#pfSurprise');
+  if (surpriseBtn) surpriseBtn.onclick = () => {
+    const pick = SURPRISE_TOPICS[Math.floor(Math.random() * SURPRISE_TOPICS.length)];
+    promptDraft.topic = pick.topic;
+    if (!promptDraft.subject.trim()) promptDraft.subject = pick.subject;
+    if (!promptDraft.chapter.trim()) promptDraft.chapter = pick.topic;
+    if (topicEl) topicEl.value = promptDraft.topic;
+    if (subjEl && !subjEl.value.trim()) subjEl.value = promptDraft.subject;
+    if (chapEl && !chapEl.value.trim()) chapEl.value = promptDraft.chapter;
+    haptic(10); chime([659.25, 830.61]);
+    renderPromptPreview();
+  };
+
+  const hp = hashParams();
+  if (hp.tab === 'examples' && hp.cls) {
+    document.querySelectorAll('[data-viewexample]').forEach(b => b.onclick = () => {
+      const group = PROMPT_EXAMPLES.find(c => c.cls === +hp.cls);
+      const ex = group.items[+b.dataset.viewexample];
+      const tpl = PROMPT_TEMPLATE_BY_KEY.get(ex.tpl);
+      const text = tpl.build({ topic: ex.topic, cls: String(group.cls), subject: ex.subject, chapter: ex.chapter, count: '8' });
+      sheet(`
+        <div style="text-align:center">
+          <div style="font-size:44px;line-height:1">${tpl.emoji}</div>
+          <h2 style="font-size:21px;margin-top:6px">${esc(ex.topic)}</h2>
+          <p class="muted" style="font-weight:600;margin-top:4px">${esc(ex.subject)} · ${S.locale==='hi'?'कक्षा':'Class'} ${group.cls}</p>
+        </div>
+        <div class="prompt-box" style="margin-top:16px">
+          <p class="prompt-box__label">📋 COPY-PASTE PROMPT</p>
+          <p class="prompt-box__text">${esc(text)}</p>
+        </div>
+        <button class="btn btn--primary btn--block" style="margin-top:12px" id="exCopyBtn">📋 ${esc(t('copyPromptBtn'))}</button>
+        <div class="tool-pill-row" style="margin-top:14px">
+          ${tpl.tools.map(x => `<a class="tool-pill" href="${x.url}" target="_blank" rel="noopener noreferrer">${esc(x.n)}</a>`).join('')}
+        </div>
+      `, (node) => {
+        node.querySelector('#exCopyBtn').onclick = () => {
+          try { navigator.clipboard.writeText(text); } catch {}
+          toast('✨ ' + t('promptCopied')); haptic();
+          recordPromptHistory(tpl.key, text, ex.topic);
+          if (!S.promptTemplatesUsed.includes(tpl.key)) {
+            S.promptTemplatesUsed.push(tpl.key); save();
+            pushEvent('prompt_built', { tplKey: tpl.key });
+            gain(XP.promptBuilt, L(tpl.n));
+          }
+        };
+      });
+    });
+  }
+}
+
+/* ===========================================================================
+   MY CREATIONS — student portfolio
+   The app could prove a student *practised* (XP, quizzes, chapters) but had
+   no way to show what they actually *made*. This closes that: a student
+   records the thing they produced with an AI tool, and ends the term with
+   a portfolio a parent or teacher can look through.
+   Links are stored, never fetched or embedded — this app has no way to
+   verify what sits behind a URL, so it renders as a plain outbound link a
+   person chooses to open, not as trusted embedded content.
+   =========================================================================== */
+
+function timeAgo(ts) {
+  const mins = Math.floor((Date.now() - ts) / 60000);
+  if (mins < 1) return S.locale === 'hi' ? 'अभी' : 'just now';
+  if (mins < 60) return mins + 'm ' + (S.locale === 'hi' ? 'पहले' : 'ago');
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return hrs + 'h ' + (S.locale === 'hi' ? 'पहले' : 'ago');
+  const days = Math.floor(hrs / 24);
+  if (days < 30) return days + 'd ' + (S.locale === 'hi' ? 'पहले' : 'ago');
+  return new Date(ts).toLocaleDateString(S.locale === 'hi' ? 'hi-IN' : 'en-IN', { day: 'numeric', month: 'short' });
+}
+
+/* Only ever linkify plain http(s). Anything else — most importantly
+   javascript: — must not become a clickable href, since the text comes
+   from user input and is rendered back into the page. */
+function safeHttpUrl(raw) {
+  const v = String(raw || '').trim();
+  if (!v) return '';
+  if (!/^https?:\/\//i.test(v)) return '';
+  try { const u = new URL(v); return (u.protocol === 'http:' || u.protocol === 'https:') ? u.href : ''; }
+  catch { return ''; }
+}
+
+const CREATION_EMOJI = ['🌟','🎨','📊','🎬','🧠','📝','🖼️','🎵','🏆','💡'];
+
+function viewCreations() {
+  const list = [...S.creations].sort((a, b) => b.ts - a.ts);
+
+  return `<div class="view">
+    <div class="sec-head"><h2>${esc(t('creations'))}</h2><p>${esc(t('creationsSub'))}</p></div>
+    <button class="btn ${list.length ? 'btn--ghost' : 'btn--violet'} btn--block" style="margin-bottom:18px" id="addCreationBtn">＋ ${esc(t('addCreation'))}</button>
+
+    ${!list.length ? `<div class="card empty-state reveal">
+        <div class="empty-state__emoji">🎨</div>
+        <p class="empty-state__title">${esc(t('noCreations'))}</p>
+        <p class="empty-state__sub">${esc(t('noCreationsSub'))}</p>
+      </div>`
+    : `<div class="stagger">
+        ${list.map((c, i) => {
+          const url = safeHttpUrl(c.link);
+          return `<div class="card card--ruled creation-card reveal" style="--i:${i}">
+            <span class="creation-card__emoji">${c.emoji || '🌟'}</span>
+            <span class="creation-card__body">
+              <span class="creation-card__title">${esc(c.title)}</span>
+              <span class="creation-card__meta">${c.tool ? esc(c.tool) + ' · ' : ''}${esc(timeAgo(c.ts))}</span>
+              ${c.note ? `<p class="creation-card__note">${esc(c.note)}</p>` : ''}
+              <span class="creation-card__actions">
+                ${url ? `<a href="${esc(url)}" target="_blank" rel="noopener noreferrer">🔗 ${esc(t('openLink'))}</a>` : ''}
+                <button class="creation-card__del" data-delcreation="${esc(c.id)}" aria-label="${esc(t('deleteCreation'))}">${esc(t('deleteCreation'))}</button>
+              </span>
+            </span>
+          </div>`;
+        }).join('')}
+      </div>
+      <p class="page-floor">${list.length} ${S.locale === 'hi' ? 'सहेजा गया' : (list.length === 1 ? 'creation saved' : 'creations saved')}</p>`}
+  </div>`;
+}
+
+function openCreationSheet() {
+  sheet(`
+    <h2 style="font-size:21px;margin-bottom:14px">➕ ${esc(t('addCreation'))}</h2>
+    <div class="field">
+      <label>${esc(t('creationTitle'))}</label>
+      <input class="input" id="ncTitle" placeholder="${S.locale==='hi'?'जैसे: जल-चक्र पोस्टर':'e.g. Water cycle poster'}" autocomplete="off"/>
+      <p class="field__err" id="ncErr"></p>
+    </div>
+    <div class="field">
+      <label>${esc(t('creationTool'))}</label>
+      <input class="input" id="ncTool" placeholder="${S.locale==='hi'?'जैसे: कैनवा एआई':'e.g. Canva AI'}" autocomplete="off"/>
+    </div>
+    <div class="field">
+      <label>${esc(t('creationLink'))}</label>
+      <input class="input" id="ncLink" placeholder="https://..." inputmode="url" autocomplete="off"/>
+      <p class="field__err" id="ncLinkErr"></p>
+    </div>
+    <div class="field">
+      <label>${esc(t('creationNote'))}</label>
+      <input class="input" id="ncNote" placeholder="${S.locale==='hi'?'इसके बारे में एक पंक्ति':'One line about it'}" autocomplete="off"/>
+    </div>
+    <button class="btn btn--primary btn--block" id="ncSave">${esc(t('saveCreation'))}</button>
+  `, (node, close) => {
+    const titleEl = node.querySelector('#ncTitle');
+    titleEl.focus();
+    node.querySelector('#ncSave').onclick = () => {
+      const title = titleEl.value.trim();
+      if (!title) { node.querySelector('#ncErr').textContent = t('creationNeedsTitle'); haptic(60); return; }
+      const rawLink = node.querySelector('#ncLink').value.trim();
+      // A mistyped link is worth flagging rather than silently dropping —
+      // otherwise the student believes they saved it.
+      if (rawLink && !safeHttpUrl(rawLink)) {
+        node.querySelector('#ncLinkErr').textContent = t('linkLooksOff'); haptic(60); return;
+      }
+      const created = {
+        id: 'c' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+        title,
+        tool: node.querySelector('#ncTool').value.trim(),
+        link: rawLink,
+        note: node.querySelector('#ncNote').value.trim(),
+        emoji: CREATION_EMOJI[Math.floor(Math.random() * CREATION_EMOJI.length)],
+        ts: Date.now()
+      };
+      S.creations.push(created);
+      save();
+      logEvent('creation', title, created.tool);
+      syncCreation(created);   // guests and failed posts keep the local copy untouched
+      close();
+      gain(XP.creation, t('creationSaved'));
+      render();
+    };
+  });
+}
+
+function afterCreations() {
+  const add = $('#addCreationBtn');
+  if (add) add.onclick = () => { haptic(8); openCreationSheet(); };
+  document.querySelectorAll('[data-delcreation]').forEach(b => b.onclick = () => {
+    if (!confirm(t('confirmDelete'))) return;
+    S.creations = S.creations.filter(c => c.id !== b.dataset.delcreation);
+    save();
+    // Without this the next hydrate would resurrect it from the server.
+    syncCreationDeleted(b.dataset.delcreation);
+    haptic(20); render();
+  });
+}
+
+/* ===========================================================================
+   UNIVERSAL SEARCH
+   One box across AI tools, curriculum chapters and prompt templates. The
+   app has grown enough that "where was that thing" is a real question.
+   Tools and chapters are scoped to the student's own class group, so every
+   result is something they can actually open.
+   =========================================================================== */
+
+function markMatch(text, qLower) {
+  const str = String(text);
+  const i = str.toLowerCase().indexOf(qLower);
+  if (i < 0) return esc(str);
+  return esc(str.slice(0, i)) + '<mark>' + esc(str.slice(i, i + qLower.length)) + '</mark>' + esc(str.slice(i + qLower.length));
+}
+
+function runSearch(query) {
+  const qL = query.trim().toLowerCase();
+  if (qL.length < 2) return null;
+  const out = { tools: [], chapters: [], prompts: [] };
+
+  groupTools().forEach(x => {
+    const name = L(x.n), desc = L(x.d);
+    if (name.toLowerCase().includes(qL) || desc.toLowerCase().includes(qL)) {
+      out.tools.push({ slug: x.slug, emoji: x.e, title: name, meta: desc });
+    }
+  });
+
+  const band = S.classGroup || 'middle';
+  Object.entries(CURRICULUM).forEach(([bKey, board]) => {
+    Object.entries(board.classes).forEach(([clsNum, clsData]) => {
+      if (bandForClassNum(clsNum) !== band) return;
+      Object.entries(clsData).forEach(([subKey, sub]) => {
+        sub.chapters.forEach(ch => {
+          const title = L(ch.title);
+          // Match the chapter title and subject, but also the text of its
+          // prompts: a student types the topic they're studying
+          // ("photosynthesis"), which is often a word inside the chapter's
+          // activities rather than in its formal title ("Nutrition in
+          // Plants"). Matching titles only would miss the obvious search.
+          const inPrompts = (ch.prompts || []).some(pr => L(pr.text).toLowerCase().includes(qL));
+          if (title.toLowerCase().includes(qL) || L(sub.label).toLowerCase().includes(qL) || inPrompts) {
+            out.chapters.push({
+              emoji: sub.emoji, title,
+              meta: L(board.label) + ' · ' + (S.locale==='hi'?'कक्षा':'Class') + ' ' + clsNum + ' · ' + L(sub.label),
+              hash: { b: bKey, c: clsNum, s: subKey, ch: ch.slug }
+            });
+          }
+        });
+      });
+    });
+  });
+
+  PROMPT_TEMPLATES.forEach(tpl => {
+    const name = L(tpl.n), blurb = L(tpl.blurb);
+    if (name.toLowerCase().includes(qL) || blurb.toLowerCase().includes(qL)) {
+      out.prompts.push({ key: tpl.key, emoji: tpl.emoji, title: name, meta: blurb });
+    }
+  });
+
+  return out;
+}
+
+function viewSearch() {
+  const query = hashParams().q || '';
+  const res = runSearch(query);
+  const qL = query.trim().toLowerCase();
+  const total = res ? res.tools.length + res.chapters.length + res.prompts.length : 0;
+
+  return `<div class="view">
+    <div class="search-wrap">
+      <input class="input" id="searchInput" value="${esc(query)}" placeholder="🔍 ${esc(t('searchEverything'))}" autocomplete="off"/>
+    </div>
+
+    ${!res ? `<div class="card empty-state reveal">
+        <div class="empty-state__emoji">🔍</div>
+        <p class="empty-state__title">${esc(t('search'))}</p>
+        <p class="empty-state__sub">${esc(t('searchHint'))}</p>
+      </div>`
+      : total === 0 ? `<div class="card empty-state reveal">
+        <div class="empty-state__emoji">🤔</div>
+        <p class="empty-state__title">${esc(t('noResults'))}</p>
+        <p class="empty-state__sub">${esc(t('noResultsSub'))}</p>
+      </div>`
+      : `
+      ${res.tools.length ? `<p class="res-group__label">${esc(t('resTool'))} · ${res.tools.length} ${esc(res.tools.length === 1 ? t('resultFor') : t('resultsFor'))}</p>
+        ${res.tools.map(r => `<button class="card card--tap res-item" data-restool="${esc(r.slug)}">
+          <span class="res-item__emoji">${r.emoji}</span>
+          <span class="res-item__body">
+            <span class="res-item__title">${markMatch(r.title, qL)}</span>
+            <span class="res-item__meta">${markMatch(r.meta, qL)}</span>
+          </span>
+        </button>`).join('')}` : ''}
+
+      ${res.chapters.length ? `<p class="res-group__label">${esc(t('resChapter'))} · ${res.chapters.length} ${esc(res.chapters.length === 1 ? t('resultFor') : t('resultsFor'))}</p>
+        ${res.chapters.map(r => `<button class="card card--tap res-item" data-reschapter="${esc(JSON.stringify(r.hash))}">
+          <span class="res-item__emoji">${r.emoji}</span>
+          <span class="res-item__body">
+            <span class="res-item__title">${markMatch(r.title, qL)}</span>
+            <span class="res-item__meta">${esc(r.meta)}</span>
+          </span>
+        </button>`).join('')}` : ''}
+
+      ${res.prompts.length ? `<p class="res-group__label">${esc(t('resPrompt'))} · ${res.prompts.length} ${esc(res.prompts.length === 1 ? t('resultFor') : t('resultsFor'))}</p>
+        ${res.prompts.map(r => `<button class="card card--tap res-item" data-resprompt="${esc(r.key)}">
+          <span class="res-item__emoji">${r.emoji}</span>
+          <span class="res-item__body">
+            <span class="res-item__title">${markMatch(r.title, qL)}</span>
+            <span class="res-item__meta">${markMatch(r.meta, qL)}</span>
+          </span>
+        </button>`).join('')}` : ''}
+    `}
+  </div>`;
+}
+
+let searchDebounce = null;
+
+function afterSearch() {
+  const input = $('#searchInput');
+  if (input) {
+    input.focus();
+    // Move the caret to the end rather than selecting all, so continuing to
+    // type extends the query instead of replacing it after a re-render.
+    const v = input.value; input.value = ''; input.value = v;
+    input.oninput = () => {
+      clearTimeout(searchDebounce);
+      const val = input.value;
+      // Debounced, and replaceState rather than push: typing a query must
+      // not bury the previous screen under one history entry per keystroke.
+      searchDebounce = setTimeout(() => {
+        const qs = val.trim() ? '?q=' + encodeURIComponent(val) : '';
+        history.replaceState(null, '', '#/search' + qs);
+        render();
+      }, 220);
+    };
+  }
+  document.querySelectorAll('[data-restool]').forEach(b => b.onclick = () => { haptic(8); toolSheet(b.dataset.restool); });
+  document.querySelectorAll('[data-resprompt]').forEach(b => b.onclick = () => {
+    haptic(8); justPickedTemplate = true;
+    pushHash('prompts', { tab: 'build', tpl: b.dataset.resprompt });
+  });
+  document.querySelectorAll('[data-reschapter]').forEach(b => b.onclick = () => {
+    haptic(8);
+    try { pushHash('curriculum', JSON.parse(b.dataset.reschapter)); } catch {}
+  });
+}
+
+/* ===========================================================================
+   VOYAGE — the learning journey as a flight through space
+   ---------------------------------------------------------------------------
+   Every stop is drawn from the real event log, so the rocket sits at the
+   student's actual progress and each planet is something they genuinely did.
+   The empty sky a new student sees is deliberate: the whole point of the
+   screen is that it fills because of their work, and seeding it with
+   invented milestones would make the first real one mean nothing.
+   =========================================================================== */
+
+const VOYAGE_KINDS = {
+  tool:     { icon: '\ud83d\udef0\ufe0f', c: '#5b6ef5', n: { en: 'Tool explored',  hi: 'टूल खोजा' } },
+  quiz:     { icon: '\u2b50',             c: '#f2b012', n: { en: 'Quiz passed',    hi: 'क्विज़ पास' } },
+  chapter:  { icon: '\ud83e\ude90',       c: '#0d9c8a', n: { en: 'Chapter opened', hi: 'अध्याय खोला' } },
+  prompt:   { icon: '\u2604\ufe0f',       c: '#8b46d6', n: { en: 'Prompt built',   hi: 'प्रॉम्प्ट बनाया' } },
+  creation: { icon: '\ud83c\udf1f',       c: '#e0448f', n: { en: 'Creation saved', hi: 'रचना सहेजी' } },
+  badge:    { icon: '\ud83c\udfc5',       c: '#1899c4', n: { en: 'Badge earned',   hi: 'बैज मिला' } },
+  level:    { icon: '\ud83d\ude80',       c: '#e5761c', n: { en: 'Level up',       hi: 'स्तर बढ़ा' } }
+};
+
+function voyageDay(ts) {
+  return new Date(ts).toLocaleDateString(S.locale === 'hi' ? 'hi-IN' : 'en-IN',
+    { day: 'numeric', month: 'short' });
+}
+
+/* Three phases: the pad, the launch, then the cruise past each milestone.
+   Kept in a module variable rather than saved state — a launch is a moment,
+   not a preference, so it plays fresh each visit and leaves no trace. */
+let voyagePhase = 'pad';   // 'pad' | 'launch' | 'cruise'
+let voyageTimer = null;
+
+function voyageStars(n, cls) {
+  return Array.from({ length: n }, (_, i) => {
+    const x = (i * 37) % 100, y = (i * 63) % 100;
+    const d = ((i % 6) * 0.6).toFixed(1), sz = 1 + (i % 3);
+    return `<span class="${cls}" style="left:${x}%;top:${y}%;width:${sz}px;height:${sz}px;animation-delay:${d}s"></span>`;
+  }).join('');
+}
+
+function viewVoyage() {
+  const log = [...(S.timeline || [])].reverse(); // newest first — the rocket leads
+  const lvl = levelForXp(S.xp);
+
+  // Nothing to fly through yet. The pad sequence would be a lie here: there
+  // is no journey behind the rocket, so it stays grounded and says so.
+  if (!log.length) {
+    return `<div class="view voyage" data-phase="idle">
+      <div class="voyage__sky" aria-hidden="true">${voyageStars(40, 'star')}</div>
+      <div class="voyage__empty">
+        <div class="voyage__rocket voyage__rocket--idle">\ud83d\ude80</div>
+        <p class="voyage__emptytitle">${esc(t('voyageEmpty'))}</p>
+        <p class="voyage__emptysub">${esc(t('voyageEmptySub'))}</p>
+        <button class="btn btn--primary" data-go="explore">${esc(t('voyageStart'))}</button>
+      </div>
+    </div>`;
+  }
+
+  if (voyagePhase === 'pad') {
+    return `<div class="view voyage voyage--pad" data-phase="pad">
+      <div class="voyage__sky" aria-hidden="true">${voyageStars(40, 'star')}</div>
+      <div class="voyage__pad">
+        <p class="voyage__eyebrow">${esc(t('voyageEyebrow'))}</p>
+        <h2 class="voyage__title">${esc(t('voyage'))}</h2>
+        <div class="voyage__stats" style="margin-bottom:26px">
+          <span><b>${log.length}</b> ${esc(t('voyageStops'))}</span>
+          <span>${esc(t('lvShort'))} <b>${lvl}</b></span>
+          <span><b>${S.xp.toLocaleString()}</b> XP</span>
+        </div>
+
+        <button class="voyage__launchBtn" id="voyLaunch" aria-label="${esc(t('voyageTap'))}">
+          <span class="voyage__padGlow" aria-hidden="true"></span>
+          <span class="voyage__padRocket">\ud83d\ude80</span>
+          <span class="voyage__ring voyage__ring--1" aria-hidden="true"></span>
+          <span class="voyage__ring voyage__ring--2" aria-hidden="true"></span>
+        </button>
+
+        <p class="voyage__tap">${esc(t('voyageTap'))}</p>
+        <p class="voyage__tapsub">${esc(t('voyageTapSub'))}</p>
+      </div>
+    </div>`;
+  }
+
+  const launching = voyagePhase === 'launch';
+
+  return `<div class="view voyage ${launching ? 'is-launching' : 'is-cruising'}" data-phase="${voyagePhase}">
+    <div class="voyage__sky" aria-hidden="true">${voyageStars(40, 'star')}</div>
+    ${launching ? `<div class="voyage__warp" aria-hidden="true">${voyageStars(26, 'streak')}</div>` : ''}
+
+    <div class="voyage__head">
+      <p class="voyage__eyebrow">${esc(t('voyageEyebrow'))}</p>
+      <h2 class="voyage__title">${esc(t('voyage'))}</h2>
+      <p class="voyage__sub">${esc(t('voyageSub'))}</p>
+      <div class="voyage__stats">
+        <span><b>${log.length}</b> ${esc(t('voyageStops'))}</span>
+        <span>${esc(t('lvShort'))} <b>${lvl}</b></span>
+        <span><b>${S.xp.toLocaleString()}</b> XP</span>
+      </div>
+    </div>
+
+    <div class="voyage__track">
+      <span class="voyage__line"></span>
+      <div class="voyage__now">
+        <span class="voyage__rocket">\ud83d\ude80</span>
+        <span class="voyage__nowlabel">${esc(t('voyageNow'))}</span>
+      </div>
+      ${log.map((e, i) => {
+        const k = VOYAGE_KINDS[e.k] || VOYAGE_KINDS.tool;
+        return `<div class="voyage__stop voyage__stop--${i % 2 === 0 ? 'left' : 'right'}" style="--c:${k.c};--i:${i}">
+          <span class="voyage__dot">${k.icon}</span>
+          <div class="voyage__card">
+            <p class="voyage__kind">${esc(L(k.n))}</p>
+            <p class="voyage__label">${esc(e.l)}</p>
+            ${e.m ? `<p class="voyage__meta">${esc(e.m)}</p>` : ''}
+            <p class="voyage__when">${esc(voyageDay(e.ts))}</p>
+          </div>
+        </div>`;
+      }).join('')}
+      <div class="voyage__origin">
+        <span class="voyage__originDot">\ud83c\udf0d</span>
+        <span class="voyage__originLabel">${esc(t('voyageStart2'))}</span>
+      </div>
+    </div>
+
+    ${!launching ? `<button class="voyage__replay" id="voyReplay">\u21ba ${esc(t('voyageReplay'))}</button>` : ''}
+  </div>`;
+}
+
+function afterVoyage() {
+  const btn = $('#voyLaunch');
+  if (btn) btn.onclick = () => {
+    haptic(30);
+    chime([392, 523.25, 659.25]);
+    // Anyone who has asked their device to reduce motion gets the journey
+    // immediately rather than a shortened version of the animation.
+    if (reduced()) { voyagePhase = 'cruise'; render(); return; }
+    voyagePhase = 'launch';
+    render();
+    clearTimeout(voyageTimer);
+    voyageTimer = setTimeout(() => { voyagePhase = 'cruise'; render(); }, 1500);
+  };
+
+  const replay = $('#voyReplay');
+  if (replay) replay.onclick = () => { haptic(10); voyagePhase = 'pad'; render(); };
+}
+
+/* ------------------------------------------------------------------ badges */
+
+function viewBadges() {
+  const c = ctx();
+  return `<div class="view">
+    <div class="sec-head"><h2>${esc(t('badges'))}</h2><p>${S.badges.length}/${BADGES.length}</p></div>
+    <div class="badges stagger">
+      ${BADGES.map((b, i) => {
+        const has = S.badges.includes(b.k);
+        const [cur, max] = b.prog(c);
+        const when = S.badgeDates && S.badgeDates[b.k];
+        return `<div class="badge badge--${b.r} ${has ? 'earned' : 'locked'}" style="--i:${i}">
+          <div class="badge__inner"><div class="badge__face">
+            <span class="badge__emoji">${b.e}</span>
+            <span class="badge__name">${esc(L(b.n))}</span>
+            ${has
+              ? `<span class="badge__earned">${when
+                    ? esc(t('earnedOn')) + ' ' + esc(new Date(when).toLocaleDateString(S.locale === 'hi' ? 'hi-IN' : 'en-IN', { day: 'numeric', month: 'short' }))
+                    : esc(t('earnedLabel'))}</span>`
+              : `<span class="badge__hint">${esc(L(b.h))}</span>
+                 <span class="badge__prog bar bar--thin"><span class="bar__fill" style="width:${(cur / max) * 100}%"></span></span>
+                 <span class="badge__count">${cur}/${max}</span>`}
+          </div></div>
+        </div>`;
+      }).join('')}
+    </div>
+    <button class="card card--tap" style="margin-top:16px;text-align:left;display:flex;align-items:center;gap:12px" data-go="voyage">
+      <span style="font-size:24px">\ud83d\ude80</span>
+      <span style="flex:1"><b style="font-family:var(--font-display);font-size:15px">${esc(t('voyage'))}</b><br/><span class="muted" style="font-size:13px">${(S.timeline||[]).length} ${esc(t('voyageStops'))}</span></span>
+      <span style="color:var(--dim)">\u203a</span>
+    </button>
+    <button class="card card--tap" style="margin-top:10px;text-align:left;display:flex;align-items:center;gap:12px" data-go="board">
+      <span style="font-size:24px">🏆</span>
+      <span style="flex:1"><b style="font-family:var(--font-display);font-size:15px">${esc(t('classBoard'))}</b><br/><span class="muted" style="font-size:13px">#${classRank()} ${esc(t('inClass'))}</span></span>
+      <span style="color:var(--dim)">›</span>
+    </button>
+  </div>`;
+}
+
+/* ------------------------------------------------------------- leaderboard */
+
+const PEERS = [
+  { n: 'Zara A.', a: '🦉', xp: 4180, w: 620 }, { n: 'Marcus L.', a: '🤖', xp: 3240, w: 410 },
+  { n: 'Priya N.', a: '🐼', xp: 2610, w: 780 }, { n: 'Dev R.', a: '🚀', xp: 2090, w: 260 },
+  { n: 'Ishita M.', a: '🐱', xp: 1740, w: 330 }, { n: 'Kabir S.', a: '👽', xp: 1180, w: 190 }
+];
+
+function classRank() {
+  const me = { xp: S.xp, me: true };
+  return [...PEERS, me].sort((a, b) => b.xp - a.xp).findIndex(x => x.me) + 1;
+}
+
+function viewBoard() {
+  const weekly = S.boardWeek;
+  const av = AVATARS.find(a => a.k === S.avatar) || AVATARS[0];
+  const me = { n: (S.name.trim() || 'You'), a: av.e, xp: S.xp, w: Math.round(S.xp * 0.22), me: true };
+  const all = [...PEERS, me].sort((a, b) => (weekly ? b.w - a.w : b.xp - a.xp));
+
+  return `<div class="view">
+    <div class="sec-head"><h2>${esc(t('classBoard'))}</h2></div>
+    <p class="muted" style="font-weight:600;font-size:15px;margin-bottom:14px">${esc(t('boardSub'))}</p>
+    <div class="segment" style="margin-bottom:14px">
+      <button class="${!weekly ? 'on' : ''}" data-board="all">${esc(t('allTime'))}</button>
+      <button class="${weekly ? 'on' : ''}" data-board="week">${esc(t('thisWeek'))}</button>
+    </div>
+    <div class="card board">
+      ${all.map((r, i) => `<div class="row ${r.me ? 'me' : ''}" style="--i:${i}">
+        <span class="row__rank">${i + 1}</span>
+        <span class="row__av">${r.a}</span>
+        <span class="row__name">${esc(r.n)}</span>
+        <span class="row__xp">${(weekly ? r.w : r.xp).toLocaleString()} XP</span>
+      </div>`).join('')}
+    </div>
+  </div>`;
+}
+
+function afterBoard() {
+  document.querySelectorAll('[data-board]').forEach(b => b.onclick = () => { S.boardWeek = b.dataset.board === 'week'; save(); render(); });
+}
+
+/* ----------------------------------------------------------------- profile */
+
+/* ------------------------------------------------------------ cloud sync UI */
+
+/* Deliberately the only place in the app that asks for an account, and never
+   a gate: the whole product works signed out. This card explains what signing
+   in actually buys — the progress surviving a lost or swapped phone, which is
+   a real thing that happens to these students — rather than asking them to
+   register because software usually does. */
+function cloudCard() {
+  const user = authUser();
+  if (!signedIn()) {
+    return `<section class="sec reveal">
+      <div class="sec-head"><h2>☁️ ${esc(t('cloudSync'))}</h2><p>${esc(t('cloudSyncSub'))}</p></div>
+      <div class="card">
+        <p class="muted" style="font-weight:700;font-size:14px">${esc(t('cloudOff'))}</p>
+        <button class="btn btn--primary btn--block" style="margin-top:12px" id="cloudSignInBtn">${esc(t('cloudSignIn'))}</button>
+        <button class="btn btn--ghost btn--block" style="margin-top:10px" id="cloudRegisterBtn">${esc(t('cloudRegister'))}</button>
+      </div>
+    </section>`;
+  }
+  return `<section class="sec reveal">
+    <div class="sec-head"><h2>☁️ ${esc(t('cloudSync'))}</h2><p>${esc(t('cloudSyncSub'))}</p></div>
+    <div class="card">
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        <span class="chip chip--sprout">✓ ${esc(t('cloudOn'))}</span>
+        ${user && user.email ? `<span class="muted" style="font-weight:700;font-size:13.5px">${esc(user.email)}</span>` : ''}
+      </div>
+      <button class="btn btn--ghost btn--block" style="margin-top:12px" id="cloudSignOutBtn">${esc(t('cloudSignOut'))}</button>
+    </div>
+  </section>`;
+}
+
+function openAuthSheet(mode) {
+  const isReg = mode === 'register';
+  sheet(`
+    <h2 style="font-size:21px;margin-bottom:6px">☁️ ${esc(isReg ? t('cloudRegister') : t('cloudSignIn'))}</h2>
+    <p class="muted" style="font-weight:700;font-size:13.5px;margin-bottom:14px">${esc(t('cloudSyncSub'))}</p>
+    ${isReg ? `<div class="field">
+      <label for="authName">${esc(t('cloudNameLabel'))}</label>
+      <input class="input" id="authName" value="${esc(S.name || '')}" autocomplete="name"/>
+    </div>` : ''}
+    <div class="field">
+      <label for="authEmail">${esc(t('cloudEmail'))}</label>
+      <input class="input" id="authEmail" type="email" inputmode="email" autocomplete="email" autocapitalize="none" spellcheck="false"/>
+    </div>
+    <div class="field">
+      <label for="authPass">${esc(t('cloudPassword'))}</label>
+      <input class="input" id="authPass" type="password" autocomplete="${isReg ? 'new-password' : 'current-password'}"/>
+      <p class="field__err" id="authErr"></p>
+    </div>
+    <button class="btn btn--primary btn--block" id="authGo">${esc(isReg ? t('cloudRegister') : t('cloudSignIn'))}</button>
+    <button class="btn btn--ghost btn--block" style="margin-top:10px" id="authSwap">${esc(isReg ? t('cloudHaveAccount') : t('cloudNoAccount'))}</button>
+  `, (node, close) => {
+    const emailEl = node.querySelector('#authEmail');
+    const passEl = node.querySelector('#authPass');
+    const nameEl = node.querySelector('#authName');
+    const errEl = node.querySelector('#authErr');
+    const goBtn = node.querySelector('#authGo');
+    (isReg && nameEl ? nameEl : emailEl).focus();
+
+    node.querySelector('#authSwap').onclick = () => { close(); openAuthSheet(isReg ? 'login' : 'register'); };
+
+    let busy = false;
+    const submit = async () => {
+      if (busy) return;
+      const email = (emailEl.value || '').trim();
+      const password = passEl.value || '';
+      const name = nameEl ? (nameEl.value || '').trim() : '';
+      if (isReg && !name) { errEl.textContent = t('cloudNeedName'); haptic(60); return; }
+      if (!email || !password) { errEl.textContent = t('cloudNeedFields'); haptic(60); return; }
+
+      busy = true; errEl.textContent = '';
+      goBtn.disabled = true; goBtn.textContent = t('cloudWorking');
+      try {
+        if (isReg) await cloudRegister(name, email, password);
+        else await cloudLogin(email, password);
+      } catch (err) {
+        busy = false;
+        goBtn.disabled = false;
+        goBtn.textContent = isReg ? t('cloudRegister') : t('cloudSignIn');
+        // No status at all means the request never landed — an offline phone
+        // is a different problem from a wrong password and reads differently.
+        errEl.textContent = !err || !err.status ? t('cloudOffline')
+          : (isReg && (err.status === 409 || err.status === 422)) ? t('cloudTaken')
+          : t('cloudFailed');
+        haptic(60);
+        return;
+      }
+      close();
+      toast('☁️ ' + t('cloudWelcome'));
+      haptic(20);
+      render();          // the card flips to "signed in" straight away
+      afterSignedIn();   // backfill -> flush -> hydrate, in the background
+    };
+    goBtn.onclick = submit;
+    passEl.onkeydown = e => { if (e.key === 'Enter') submit(); };
+  });
+}
+
+function viewProfile() {
+  const lvl = levelForXp(S.xp);
+  const av = AVATARS.find(a => a.k === S.avatar) || AVATARS[0];
+  return `<div class="view">
+    <section class="card reveal" style="text-align:center">
+      <div style="font-size:62px;line-height:1">${av.e}</div>
+      <h1 style="font-size:26px;margin-top:6px">${esc(S.name || 'Student')}</h1>
+      <p class="muted" style="font-weight:700">${esc(S.locale === 'hi' ? groupTitleFor(lvl)[2] : groupTitleFor(lvl)[1])} · ${esc(t('level'))} ${lvl} · ${esc(L(groupCfg().label))}</p>
+      <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-top:12px">
+        <span class="chip chip--volt">${S.xp.toLocaleString()} XP</span>
+        <span class="chip chip--flame">🔥 ${S.streak}</span>
+        <span class="chip chip--sprout">🎖️ ${S.badges.length}</span>
+        ${S.classCode ? `<span class="chip chip--sky">🏫 ${esc(S.classCode)}</span>` : ''}
+      </div>
+    </section>
+
+    ${cloudCard()}
+
+    <section class="sec reveal">
+      <div class="sec-head"><h2>${esc(t('certificate'))}</h2><p>${esc(t('certSub'))}</p></div>
+      <div class="card">
+        <div class="certwrap"><canvas id="cert" width="1000" height="700"></canvas></div>
+        <button class="btn btn--primary btn--block" style="margin-top:14px" id="dlCert">⬇️ ${esc(t('download'))}</button>
+      </div>
+    </section>
+
+    ${!S.classCode ? `<section class="sec reveal">
+      <div class="sec-head"><h2>${esc(t('joinClass'))}</h2></div>
+      <div class="card">
+        <div class="field">
+          <input class="input input--code" id="joinCode" maxlength="6" placeholder="ABC123" inputmode="latin" autocomplete="off"/>
+          <p class="field__err" id="joinErr"></p>
+        </div>
+        <button class="btn btn--violet btn--block" id="joinBtn">${esc(t('join'))}</button>
+      </div>
+    </section>` : ''}
+
+    <section class="sec reveal">
+      <div class="sec-head"><h2>${esc(t('settings'))}</h2></div>
+      <div class="card" style="display:flex;flex-direction:column;gap:12px">
+        <div style="display:flex;align-items:center;gap:12px">
+          <span style="flex:1;font-weight:700">🌙 ${esc(t('darkMode'))}</span>
+          <button class="icon-btn" data-act="theme" aria-pressed="${S.dark}">${S.dark ? '☀️' : '🌙'}</button>
+        </div>
+        <div style="display:flex;align-items:center;gap:12px">
+          <span style="flex:1;font-weight:700">🔊 ${esc(t('sound'))}</span>
+          <button class="icon-btn" data-act="sound" aria-pressed="${S.sound}">${S.sound ? '🔊' : '🔇'}</button>
+        </div>
+        <div style="display:flex;align-items:center;gap:12px">
+          <span style="flex:1;font-weight:700">🌏 ${esc(t('language'))}</span>
+          <button class="icon-btn" data-act="lang">${S.locale === 'en' ? 'हिं' : 'EN'}</button>
+        </div>
+        ${appInstalled ? `<div style="display:flex;align-items:center;gap:8px;color:var(--sprout-deep);font-weight:700;font-size:14px">✓ ${esc(t('appInstalled'))}</div>`
+          : deferredInstallPrompt ? `
+        <div style="display:flex;align-items:center;gap:12px">
+          <span style="flex:1;font-weight:700">📲 ${esc(t('installApp'))}</span>
+          <button class="btn btn--ghost" style="min-height:38px;padding:8px 16px;font-size:13.5px" id="installBtn">${esc(t('install'))}</button>
+        </div>`
+          : isIOS() ? `<p class="muted" style="font-size:13px;line-height:1.5">📲 ${esc(t('installIOSHint'))}</p>`
+          : ''}
+        <button class="btn btn--ghost btn--block" data-act="reset">${esc(t('signOut'))}</button>
+      </div>
+    </section>
+  </div>`;
+}
+
+function isIOS() {
+  return /iP(hone|ad|od)/.test(navigator.userAgent)
+    || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1); // iPadOS reports as Mac
+}
+
+function afterProfile() {
+  drawCert();
+  const cin = $('#cloudSignInBtn');
+  if (cin) cin.onclick = () => { haptic(8); openAuthSheet('login'); };
+  const creg = $('#cloudRegisterBtn');
+  if (creg) creg.onclick = () => { haptic(8); openAuthSheet('register'); };
+  const cout = $('#cloudSignOutBtn');
+  if (cout) cout.onclick = () => {
+    haptic(20);
+    forceSignOut(false);
+    toast('☁️ ' + t('cloudSignedOutMsg'));
+    render();
+  };
+  const dl = $('#dlCert');
+  if (dl) dl.onclick = () => {
+    const cv = $('#cert');
+    const a = document.createElement('a');
+    a.download = `voldebug-certificate-${(S.name || 'student').toLowerCase().replace(/[^a-z0-9]+/g, '-')}.png`;
+    a.href = cv.toDataURL('image/png');
+    a.click();
+    toast('⬇️ ' + t('download')); haptic();
+  };
+  const jb = $('#joinBtn');
+  if (jb) jb.onclick = () => {
+    const v = ($('#joinCode').value || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+    if (v.length !== 6) { $('#joinErr').textContent = t('codeErr'); haptic(60); return; }
+    S.classCode = v; save();
+    pushEvent('class_join', { code: v });
+    gain(XP.classJoin, t('joinClass'));
+    render();
+  };
+  const inst = $('#installBtn');
+  if (inst) inst.onclick = async () => {
+    if (!deferredInstallPrompt) return;
+    haptic(10);
+    deferredInstallPrompt.prompt();
+    // The real outcome only exists after the browser's own dialog closes —
+    // showing a toast before that would be guessing at what the student did.
+    try {
+      const { outcome } = await deferredInstallPrompt.userChoice;
+      if (outcome === 'accepted') toast('📲 ' + t('appInstalled'));
+      deferredInstallPrompt = null;
+      render();
+    } catch {}
+  };
+}
+
+/* Certificate is drawn on a canvas rather than assembled from DOM, so the
+   download is a single real image file a student can put in a folder or a
+   parent can print — not a screenshot. */
+function drawCert() {
+  const cv = $('#cert'); if (!cv) return;
+  const c = cv.getContext('2d');
+  const W = cv.width, H = cv.height;
+  const lvl = levelForXp(S.xp);
+
+  const g = c.createLinearGradient(0, 0, W, H);
+  g.addColorStop(0, '#1b1440'); g.addColorStop(0.55, '#2e2363'); g.addColorStop(1, '#7c3aed');
+  c.fillStyle = g; c.fillRect(0, 0, W, H);
+
+  c.strokeStyle = 'rgba(255,201,60,.55)'; c.lineWidth = 3;
+  c.strokeRect(28, 28, W - 56, H - 56);
+  c.strokeStyle = 'rgba(255,255,255,.14)'; c.lineWidth = 1;
+  c.strokeRect(42, 42, W - 84, H - 84);
+
+  c.globalAlpha = 0.07; c.fillStyle = '#fff';
+  c.beginPath(); c.arc(W - 60, 70, 150, 0, Math.PI * 2); c.fill();
+  c.globalAlpha = 1;
+
+  c.textAlign = 'center';
+  c.fillStyle = '#ffc93c'; c.font = '700 26px "Baloo 2", sans-serif';
+  c.fillText('⚡ VOLDEBUG', W / 2, 112);
+  c.fillStyle = 'rgba(255,255,255,.62)'; c.font = '600 16px "Nunito Sans", sans-serif';
+  c.fillText('AI  E D U C A T I O N   P O R T A L', W / 2, 142);
+
+  c.fillStyle = '#fff'; c.font = '700 44px "Baloo 2", sans-serif';
+  c.fillText('Certificate of Achievement', W / 2, 232);
+
+  c.fillStyle = 'rgba(255,255,255,.68)'; c.font = '600 19px "Nunito Sans", sans-serif';
+  c.fillText('presented to', W / 2, 288);
+
+  c.fillStyle = '#ffc93c'; c.font = '800 56px "Baloo 2", sans-serif';
+  c.fillText(S.name || 'Student', W / 2, 356);
+
+  c.strokeStyle = 'rgba(255,201,60,.4)'; c.lineWidth = 2;
+  c.beginPath(); c.moveTo(W / 2 - 190, 378); c.lineTo(W / 2 + 190, 378); c.stroke();
+
+  c.fillStyle = 'rgba(255,255,255,.85)'; c.font = '600 20px "Nunito Sans", sans-serif';
+  c.fillText(`for reaching Level ${lvl} — ${groupTitleFor(lvl)[1]}`, W / 2, 420);
+  c.fillText(`${S.xp.toLocaleString()} XP  ·  ${S.badges.length} badges  ·  ${S.toolsSeen.length} AI tools explored`, W / 2, 456);
+
+  const date = new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' });
+  c.fillStyle = 'rgba(255,255,255,.55)'; c.font = '600 16px "Nunito Sans", sans-serif';
+  c.fillText(date, W / 2, 560);
+
+  c.strokeStyle = 'rgba(255,255,255,.3)';
+  c.beginPath(); c.moveTo(W / 2 - 130, 606); c.lineTo(W / 2 + 130, 606); c.stroke();
+  c.fillStyle = 'rgba(255,255,255,.5)'; c.font = '600 14px "Nunito Sans", sans-serif';
+  c.fillText('Voldebug Innovations Pvt. Ltd.', W / 2, 632);
+}
+
+/* ----------------------------------------------------------------- teacher */
+
+const ROSTER = [
+  { n: 'Zara Ahmed', a: '🦉', xp: 4180, s: 12, seen: 'Today' },
+  { n: 'Marcus Lee', a: '🤖', xp: 3240, s: 8, seen: 'Today' },
+  { n: 'Priya Nair', a: '🐼', xp: 2610, s: 21, seen: 'Today' },
+  { n: 'Dev Raman', a: '🚀', xp: 2090, s: 3, seen: 'Yesterday' },
+  { n: 'Ishita Mehta', a: '🐱', xp: 1740, s: 5, seen: 'Today' },
+  { n: 'Kabir Singh', a: '👽', xp: 1180, s: 0, seen: '4 days ago' },
+  { n: 'Ananya Rao', a: '🦊', xp: 980, s: 2, seen: 'Yesterday' },
+  { n: 'Rohan Das', a: '🦖', xp: 640, s: 0, seen: '9 days ago' }
+];
+
+function viewTeacher() {
+  const avg = Math.round(ROSTER.reduce((a, s) => a + levelForXp(s.xp), 0) / ROSTER.length);
+  const active = ROSTER.filter(s => s.seen === 'Today').length;
+  const code = S.classCode || 'VD7K2M';
+  const myUpskill = UPSKILL_MODULES.filter(m => S.teacherModulesDone.includes(m.key)).length;
+
+  return `<div class="view">
+    <div class="demo-note">🧪 ${esc(t('demoNote'))}</div>
+
+    <section class="card codebox reveal">
+      <p class="codebox__label">${esc(t('classCodeLabel'))}</p>
+      <p class="codebox__code">${esc(code)}</p>
+      <p style="opacity:.75;font-size:14px;font-weight:600">${esc(t('shareCode'))}</p>
+      <button class="btn btn--primary" style="margin-top:14px" id="copyCode">📋 ${esc(t('copyCode'))}</button>
+    </section>
+
+    <section class="sec stats stagger">
+      <div class="card stat" style="--i:0"><div class="stat__k">${ROSTER.length}</div><div class="stat__l">${esc(t('students'))}</div></div>
+      <div class="card stat" style="--i:1"><div class="stat__k">${avg}</div><div class="stat__l">${esc(t('avgLevel'))}</div></div>
+      <div class="card stat" style="--i:2"><div class="stat__k">${active}</div><div class="stat__l">${esc(t('activeToday'))}</div></div>
+      <div class="card stat" style="--i:3"><div class="stat__k">${myUpskill}/${UPSKILL_MODULES.length}</div><div class="stat__l">${esc(t('modulesComplete'))}</div></div>
+    </section>
+
+    <section class="sec reveal">
+      <div class="sec-head"><h2>${esc(t('students'))}</h2></div>
+      <div class="card" style="padding:6px">
+        <div class="tbl__scroll"><table class="tbl">
+          <thead><tr>
+            <th>${esc(t('student'))}</th><th>${esc(t('level'))}</th><th>${esc(t('streak'))}</th>
+            <th>${esc(t('progress'))}</th><th>${esc(t('lastSeen'))}</th>
+          </tr></thead>
+          <tbody>
+            ${ROSTER.map(s => {
+              const lv = levelForXp(s.xp);
+              const bs = xpForLevel(lv), be = xpForLevel(lv + 1);
+              const pct = Math.round(((s.xp - bs) / (be - bs)) * 100);
+              return `<tr>
+                <td><span class="tbl__name">${s.a} ${esc(s.n)}</span></td>
+                <td class="mono">${lv}</td>
+                <td>${s.s > 0 ? `🔥 ${s.s}` : `<span class="muted">—</span>`}</td>
+                <td style="min-width:120px"><span class="bar bar--thin"><span class="bar__fill" style="width:${pct}%"></span></span></td>
+                <td class="muted" style="white-space:nowrap">${esc(s.seen)}</td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+        </table></div>
+      </div>
+    </section>
+  </div>`;
+}
+
+function afterTeacher() {
+  const cc = $('#copyCode');
+  if (cc) cc.onclick = () => {
+    try { navigator.clipboard.writeText(S.classCode || 'VD7K2M'); } catch {}
+    toast(t('codeCopied')); haptic();
+  };
+}
+
+/* ===========================================================================
+   LIVE CLASSROOM
+   Teacher starts a session with a code. Students join and answer questions
+   live. Results appear in real time on the teacher's screen (simulated here).
+   =========================================================================== */
+
+let liveState = { active: false, code: '', qIndex: 0, answered: false, results: {} };
+
+const LIVE_QUESTIONS = [
+  { q:{en:'Which AI tool is best for checking facts?',hi:'तथ्य जाँचने के लिए कौन-सा एआई टूल सबसे अच्छा है?'}, opts:[{en:'ChatGPT',hi:'चैटजीपीटी'},{en:'Perplexity',hi:'पर्प्लेक्सिटी'},{en:'Suno',hi:'सुनो'},{en:'Canva AI',hi:'कैनवा एआई'}], a:1 },
+  { q:{en:'A good prompt should always include:',hi:'अच्छे प्रॉम्प्ट में हमेशा होना चाहिए:'}, opts:[{en:'Just one word',hi:'सिर्फ एक शब्द'},{en:'Lots of exclamation marks',hi:'ढेर सारे विस्मयादिबोधक चिह्न'},{en:'Context, format and audience',hi:'संदर्भ, प्रारूप और दर्शक'},{en:'Only questions',hi:'केवल सवाल'}], a:2 },
+  { q:{en:'AI-generated images can be used freely because:',hi:'एआई-जनित चित्र स्वतंत्र रूप से उपयोग किए जा सकते हैं क्योंकि:'}, opts:[{en:'AI made them so they have no owner',hi:'एआई ने बनाया तो मालिक नहीं'},{en:'Always copyright-free',hi:'हमेशा कॉपीराइट-मुक्त होते हैं'},{en:'This is false — check the tool terms',hi:'यह गलत है — टूल की शर्तें जाँचें'},{en:'Only if you edit them',hi:'केवल अगर आप संपादित करें'}], a:2 }
+];
+
+function viewLive() {
+  if (S.role === 'teacher') return viewLiveTeacher();
+  return viewLiveStudent();
+}
+
+function viewLiveTeacher() {
+  const q = LIVE_QUESTIONS[liveState.qIndex % LIVE_QUESTIONS.length];
+  if (!liveState.code) liveState.code = 'LV' + Math.floor(1000 + Math.random()*8999);
+  const code = liveState.code;
+
+  const mockResults = { 0: 3, 1: 12, 2: 8, 3: 2 };
+  const total = Object.values(mockResults).reduce((a,b)=>a+b,0);
+
+  return `<div class="view">
+    <div class="sec-head"><h2>${esc(t('live'))}</h2></div>
+
+    <div class="card codebox reveal" style="margin-bottom:18px">
+      <p class="codebox__label">${esc(t('liveCode'))}</p>
+      <p class="codebox__code">${esc(code)}</p>
+      <p style="opacity:.7;font-size:14px;font-weight:600">25 students connected</p>
+    </div>
+
+    ${liveState.active ? `
+    <div class="card reveal" style="margin-bottom:14px">
+      <p style="font-size:13px;font-weight:900;letter-spacing:1.2px;text-transform:uppercase;color:var(--dim);margin-bottom:10px">
+        📊 ${esc(t('liveQuestion'))} ${liveState.qIndex + 1}
+      </p>
+      <h3 style="font-size:20px;margin-bottom:16px">${esc(L(q.q))}</h3>
+      ${q.opts.map((o,i) => {
+        const cnt = mockResults[i] || 0;
+        const pct = Math.round((cnt/total)*100);
+        const isRight = i === q.a;
+        return `<div style="margin-bottom:10px">
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px">
+            <span style="font-weight:700;font-size:15px;${isRight?'color:var(--sprout)':''}">${esc(L(o))}</span>
+            <span class="mono" style="margin-left:auto;font-weight:700;color:var(--dim)">${cnt} (${pct}%)</span>
+            ${isRight ? '<span style="color:var(--sprout);font-weight:800">✓</span>' : ''}
+          </div>
+          <div class="bar bar--thin"><div class="bar__fill" style="width:${pct}%;${isRight?'':'filter:grayscale(.6)'}"></div></div>
+        </div>`;
+      }).join('')}
+      <div style="display:flex;gap:10px;margin-top:16px;flex-wrap:wrap">
+        <button class="btn btn--ghost" id="nextQ" style="font-size:15px;padding:10px 18px">Next question →</button>
+        <button class="btn btn--ghost" id="endSession" style="font-size:15px;padding:10px 18px;color:var(--rose)">${esc(t('endSession'))}</button>
+      </div>
+    </div>` : `
+    <div class="card reveal" style="text-align:center;padding:32px">
+      <div style="font-size:52px">📡</div>
+      <h3 style="font-size:22px;margin-top:12px">Ready to go live?</h3>
+      <p class="muted" style="font-weight:600;margin-top:6px;margin-bottom:20px">Students join with the code above</p>
+      <button class="btn btn--violet" id="startSession">${esc(t('startSession'))}</button>
+    </div>`}
+  </div>`;
+}
+
+function viewLiveStudent() {
+  if (!liveState.active) {
+    return `<div class="view">
+      <div class="sec-head"><h2>${esc(t('live'))}</h2><p>${esc(t('liveSub'))}</p></div>
+      <div class="card reveal" style="text-align:center;padding:32px">
+        <div style="font-size:52px;margin-bottom:14px">📡</div>
+        <h3 style="font-size:22px;margin-bottom:16px">${esc(t('liveCode'))}</h3>
+        <input class="input input--code" id="liveCodeInput" maxlength="6" placeholder="LV1234" style="margin-bottom:12px"/>
+        <button class="btn btn--violet btn--block" id="joinLiveBtn">${esc(t('joinLive'))}</button>
+      </div>
+    </div>`;
+  }
+
+  const q = LIVE_QUESTIONS[liveState.qIndex % LIVE_QUESTIONS.length];
+  return `<div class="view">
+    <div class="sec-head"><h2>📡 Live · ${esc(liveState.code)}</h2><p>25 students here</p></div>
+    ${liveState.answered ? `
+    <div class="card reveal" style="text-align:center;padding:32px">
+      <div style="font-size:52px">✅</div>
+      <h2 style="margin-top:10px">${esc(t('answered'))}</h2>
+      <p class="muted" style="margin-top:8px;font-weight:600">${esc(t('waitingHost'))}</p>
+    </div>` : `
+    <div class="card reveal">
+      <p style="font-size:13px;font-weight:900;letter-spacing:1.2px;text-transform:uppercase;color:var(--dim);margin-bottom:10px">
+        ${esc(t('liveQuestion'))} ${liveState.qIndex + 1}
+      </p>
+      <h3 class="quiz__q">${esc(L(q.q))}</h3>
+      ${q.opts.map((o,i) => `<button class="opt" data-live="${i}">
+        <span class="opt__key">${['A','B','C','D'][i]}</span>${esc(L(o))}
+      </button>`).join('')}
+    </div>`}
+  </div>`;
+}
+
+function afterLive() {
+  const startBtn = $('#startSession');
+  if (startBtn) startBtn.onclick = () => { liveState.active = true; liveState.qIndex = 0; liveState.answered = false; render(); };
+  const endBtn = $('#endSession');
+  if (endBtn) endBtn.onclick = () => { liveState.active = false; liveState.code = ''; render(); };
+  const nextQ = $('#nextQ');
+  if (nextQ) nextQ.onclick = () => { liveState.qIndex++; liveState.answered = false; render(); };
+  const joinBtn = $('#joinLiveBtn');
+  if (joinBtn) joinBtn.onclick = () => {
+    const v = ($('#liveCodeInput').value||'').toUpperCase().replace(/[^A-Z0-9]/g,'');
+    if (v.length < 4) { toast('Enter a valid session code'); haptic(60); return; }
+    liveState.active = true; liveState.code = v; liveState.answered = false; render();
+  };
+  document.querySelectorAll('[data-live]').forEach(b => {
+    b.onclick = () => {
+      const pick = +b.dataset.live;
+      const q = LIVE_QUESTIONS[liveState.qIndex % LIVE_QUESTIONS.length];
+      const ok = pick === q.a;
+      b.classList.add(ok ? 'right' : 'wrong');
+      document.querySelectorAll('[data-live]').forEach(x => { x.disabled = true; if (+x.dataset.live === q.a) x.classList.add('right'); });
+      setTimeout(() => { liveState.answered = true; if(ok) gain(50,'Live answer'); render(); }, 800);
+    };
+  });
+}
+
+/* ===========================================================================
+   TEACHER — Magic AI Tools (Section 6)
+   =========================================================================== */
+
+function viewMagic() {
+  return `<div class="view">
+    <div class="sec-head"><h2>${esc(t('magicTools'))}</h2><p>${esc(t('magicSub'))}</p></div>
+    <div class="notice-box" style="margin-bottom:18px">
+      <span class="notice-box__icon">ℹ️</span><span>${esc(t('magicNotice'))}</span>
+    </div>
+    <div class="magic-grid stagger">
+      ${MAGIC_TOOLS.map((m, i) => `
+        <div class="card magic-card" style="--i:${i}">
+          <div class="magic-card__head"><span class="magic-card__emoji">${m.emoji}</span><span class="magic-card__title">${esc(L(m.n))}</span></div>
+          <p class="magic-card__desc">${esc(L(m.d))}</p>
+          ${m.fields.map(f => `
+            <div class="field">
+              <label>${esc(L(f.label))}</label>
+              <input class="input" data-magicfield="${m.key}:${f.k}" placeholder="${esc(L(f.ph))}"/>
+            </div>`).join('')}
+          <button class="btn btn--violet btn--block" data-magicgen="${m.key}">✨ ${esc(t('generate'))}</button>
+          <div id="magicOut-${m.key}"></div>
+        </div>`).join('')}
+    </div>
+  </div>`;
+}
+
+function afterMagic() {
+  document.querySelectorAll('[data-magicgen]').forEach(btn => {
+    btn.onclick = () => {
+      const key = btn.dataset.magicgen;
+      const mod = MAGIC_TOOLS.find(m => m.key === key);
+      const values = {};
+      mod.fields.forEach(f => { values[f.k] = ($(`[data-magicfield="${key}:${f.k}"]`) || {}).value || ''; });
+      const output = mod.build(values, S.locale === 'hi');
+      const slot = $(`#magicOut-${key}`);
+      slot.innerHTML = `<div class="magic-out">${esc(output)}</div>
+        <button class="btn btn--ghost btn--block" style="margin-top:8px" data-magiccopy="${key}">📋 ${esc(t('copy'))}</button>`;
+      slot.querySelector('[data-magiccopy]').onclick = () => {
+        try { navigator.clipboard.writeText(output); } catch {}
+        toast(t('copied')); haptic();
+      };
+      haptic(15); toast('✨ ' + t('generate'));
+    };
+  });
+}
+
+/* ===========================================================================
+   TEACHER — Upskilling track (Section 6)
+   =========================================================================== */
+
+let upskillQuizState = null;
+
+function viewUpskill() {
+  if (upskillQuizState) return upskillQuizView();
+
+  const done = S.teacherModulesDone.length;
+  return `<div class="view">
+    <div class="sec-head"><h2>${esc(t('upskillTitle'))}</h2><p>${esc(t('upskillSub'))}</p></div>
+    <div class="card reveal" style="margin-bottom:16px;text-align:center;padding:20px">
+      <p class="mono" style="font-size:32px;font-weight:700">${done}/${UPSKILL_MODULES.length}</p>
+      <p class="muted" style="font-weight:700">${esc(t('modulesComplete'))}</p>
+      ${done === UPSKILL_MODULES.length ? `<p class="chip chip--sprout" style="margin-top:10px">🏅 ${esc(t('aiFluentBadge'))}</p>` : ''}
+    </div>
+    <div class="path">
+      ${UPSKILL_MODULES.map((m, i) => {
+        const isDone = S.teacherModulesDone.includes(m.key);
+        return `<div class="node ${isDone ? 'done' : (i === done ? 'next' : '')}" style="--i:${i}">
+          <button class="card card--tap module-row" data-module="${m.key}">
+            <span class="module-row__emoji">${m.emoji}</span>
+            <span class="module-row__body">
+              <span class="module-row__title">${esc(L(m.n))}</span>
+              <span class="module-row__meta">${esc(L(m.d))}${isDone ? ' · ✓' : ''}</span>
+            </span>
+            <span class="tool__go">›</span>
+          </button>
+        </div>`;
+      }).join('')}
+    </div>
+  </div>`;
+}
+
+function upskillQuizView() {
+  const mod = UPSKILL_MODULES.find(m => m.key === upskillQuizState.key);
+  if (upskillQuizState.i >= mod.quiz.length) {
+    const pct = Math.round((upskillQuizState.right / mod.quiz.length) * 100);
+    const passed = pct >= 60;
+    if (passed && !S.teacherModulesDone.includes(mod.key)) {
+      S.teacherModulesDone.push(mod.key); save();
+      pushEvent('upskill_module', { key: mod.key });
+      setTimeout(() => gain(150, L(mod.n)), 300);
+    }
+    return `<div class="view" style="text-align:center;padding-top:14px">
+      <div style="font-size:60px">${passed ? '🎉' : '💪'}</div>
+      <h1 style="font-size:26px;margin-top:10px">${passed ? esc(t('greatWork')) : esc(t('retry'))}</h1>
+      <p class="mono" style="font-size:44px;font-weight:700;margin-top:8px">${pct}%</p>
+      <div style="margin-top:20px;display:flex;flex-direction:column;gap:10px">
+        ${!passed ? `<button class="btn btn--violet btn--block" id="upskillRetry">${esc(t('retry'))}</button>` : ''}
+        <button class="btn ${passed?'btn--primary':'btn--ghost'} btn--block" id="upskillDone">${esc(t('backToPath'))}</button>
+      </div>
+    </div>`;
+  }
+  const q = mod.quiz[upskillQuizState.i];
+  return `<div class="view">
+    <div class="quiz__prog">
+      <button class="icon-btn" id="upskillBack">←</button>
+      <div style="flex:1"><div class="bar bar--thin"><div class="bar__fill" style="width:${(upskillQuizState.i/mod.quiz.length)*100}%"></div></div></div>
+      <span class="chip">${upskillQuizState.i+1}/${mod.quiz.length}</span>
+    </div>
+    <p class="muted" style="font-weight:800;font-size:14px">${mod.emoji} ${esc(L(mod.n))}</p>
+    <h2 class="quiz__q">${esc(L(q.q))}</h2>
+    <div id="opts">${q.o.map((o,i) => `<button class="opt" data-uopt="${i}"><span class="opt__key">${['A','B','C','D'][i]}</span>${esc(L(o))}</button>`).join('')}</div>
+    <div id="explainSlot"></div>
+  </div>`;
+}
+
+function afterUpskill() {
+  document.querySelectorAll('[data-module]').forEach(b => b.onclick = () => {
+    upskillQuizState = { key: b.dataset.module, i: 0, right: 0 }; render();
+  });
+  const back = $('#upskillBack'); if (back) back.onclick = () => { upskillQuizState = null; render(); };
+  const done = $('#upskillDone'); if (done) done.onclick = () => { upskillQuizState = null; render(); };
+  const retry = $('#upskillRetry'); if (retry) retry.onclick = () => { upskillQuizState = { key: upskillQuizState.key, i: 0, right: 0 }; render(); };
+
+  document.querySelectorAll('[data-uopt]').forEach(btn => {
+    btn.onclick = () => {
+      const mod = UPSKILL_MODULES.find(m => m.key === upskillQuizState.key);
+      const q = mod.quiz[upskillQuizState.i];
+      const pick = +btn.dataset.uopt;
+      const ok = pick === q.a;
+      if (ok) { upskillQuizState.right++; chime([659.25, 987.77]); haptic(20); }
+      else { chime([311.13]); haptic(60); }
+      document.querySelectorAll('[data-uopt]').forEach(b => {
+        b.disabled = true;
+        if (+b.dataset.uopt === q.a) b.classList.add('right');
+        else if (+b.dataset.uopt === pick) b.classList.add('wrong');
+      });
+      const slot = $('#explainSlot');
+      slot.innerHTML = `<div class="explain"><b>${ok?'✅ '+esc(t('correct')):'💡'}</b> ${esc(L(q.why))}</div>
+        <button class="btn btn--violet btn--block" id="uNext">${upskillQuizState.i+1>=mod.quiz.length?esc(t('seeResults')):esc(t('next'))}</button>`;
+      slot.querySelector('#uNext').onclick = () => { upskillQuizState.i++; render(); };
+    };
+  });
+}
+
+/* ===========================================================================
+   PRINCIPAL — Section 5. Read-only reporting: overview + staff rollup,
+   per-class journey, misuse flags. No content-management actions anywhere
+   in this role, matching "Principal should not need to manage content."
+   =========================================================================== */
+
+function viewPrincipal() {
+  const totalStudents = SCHOOL_DATA.classes.reduce((a,c)=>a+c.students,0);
+  const totalActive = SCHOOL_DATA.classes.reduce((a,c)=>a+c.active,0);
+  const avgXp = Math.round(SCHOOL_DATA.classes.reduce((a,c)=>a+c.avgXp,0)/SCHOOL_DATA.classes.length);
+  const topClass = [...SCHOOL_DATA.classes].sort((a,b)=>b.avgXp-a.avgXp)[0];
+  const openFlags = FLAGS.length - Object.keys(loadFlagReviewState()).length;
+
+  return `<div class="view">
+    <div class="demo-note">🧪 ${esc(t('demoNote'))}</div>
+    <div class="sec-head"><h2>${esc(t('schoolStats'))}</h2></div>
+    <p style="font-family:var(--font-display);font-weight:700;font-size:17px;color:var(--dim);margin-bottom:16px">${esc(SCHOOL_DATA.name)}</p>
+
+    <div class="stats stagger" style="margin-bottom:24px">
+      <div class="card stat" style="--i:0"><div class="stat__k">${totalStudents}</div><div class="stat__l">${esc(t('students'))}</div></div>
+      <div class="card stat" style="--i:1"><div class="stat__k">${totalActive}</div><div class="stat__l">${esc(t('activeToday'))}</div></div>
+      <div class="card stat" style="--i:2"><div class="stat__k">${avgXp.toLocaleString()}</div><div class="stat__l">${esc(t('avgXp'))}</div></div>
+      <div class="card stat" style="--i:3"><div class="stat__k">${openFlags}</div><div class="stat__l">${esc(t('flags'))}</div></div>
+    </div>
+
+    <div class="card reveal" style="background:linear-gradient(135deg,var(--ink),var(--violet));color:#fff;margin-bottom:20px;padding:20px">
+      <p style="font-size:12px;font-weight:900;letter-spacing:1.4px;text-transform:uppercase;color:var(--volt)">🏆 ${esc(t('topClass'))}</p>
+      <h3 style="font-size:24px;color:#fff;margin-top:4px">${esc(topClass.name)}</h3>
+      <p style="opacity:.8;font-weight:700">${esc(topClass.teacher)} · ${topClass.avgXp.toLocaleString()} avg XP · ${topClass.active}/${topClass.students} active today</p>
+    </div>
+
+    <div class="sec-head"><h2>${esc(t('allClasses'))}</h2></div>
+    <div class="card reveal" style="padding:6px;margin-bottom:22px">
+      <div class="tbl__scroll"><table class="tbl">
+        <thead><tr>
+          <th>${esc(t('allClasses'))}</th><th>Teacher</th><th>${esc(t('students'))}</th>
+          <th>${esc(t('avgXp'))}</th><th>${esc(t('activeToday'))}</th>
+        </tr></thead>
+        <tbody>
+          ${SCHOOL_DATA.classes.map((c,i) => `<tr style="animation:cardIn .4s var(--ease) both;animation-delay:${i*50}ms">
+            <td><span style="font-weight:700">${esc(c.name)}</span></td>
+            <td class="muted">${esc(c.teacher)}</td>
+            <td class="mono">${c.students}</td>
+            <td class="mono" style="color:var(--volt-deep);font-weight:700">${c.avgXp.toLocaleString()}</td>
+            <td>
+              <span class="bar bar--thin" style="min-width:80px;display:inline-block"><span class="bar__fill" style="width:${Math.round((c.active/c.students)*100)}%"></span></span>
+              <span class="muted mono" style="font-size:13px;margin-left:6px">${c.active}/${c.students}</span>
+            </td>
+          </tr>`).join('')}
+        </tbody>
+      </table></div>
+    </div>
+
+    <div class="sec-head"><h2>${esc(t('staffProgress'))}</h2><p>${esc(t('staffProgressSub'))}</p></div>
+    <div class="card reveal" style="padding:6px;margin-bottom:22px">
+      <div class="tbl__scroll"><table class="tbl">
+        <thead><tr><th>Teacher</th><th>${esc(t('upskillProgress'))}</th><th>Magic tool uses</th></tr></thead>
+        <tbody>
+          ${SCHOOL_DATA.teachers.map(tt => `<tr>
+            <td><span style="font-weight:700">${esc(tt.name)}</span></td>
+            <td>
+              <span class="bar bar--thin" style="min-width:70px;display:inline-block"><span class="bar__fill" style="width:${(tt.modulesDone/tt.of)*100}%"></span></span>
+              <span class="muted mono" style="font-size:13px;margin-left:6px">${tt.modulesDone}/${tt.of}</span>
+            </td>
+            <td class="mono">${tt.magicUses}</td>
+          </tr>`).join('')}
+        </tbody>
+      </table></div>
+    </div>
+
+    <div class="sec-head" style="margin-top:22px"><h2>${esc(t('reports'))}</h2></div>
+    <div class="pick-list">
+      <button class="pick-row" data-go="reports">
+        <span class="pick-row__emoji">📄</span>
+        <span class="pick-row__label">${esc(t('schoolReport'))}</span>
+        <span class="pick-row__meta">${esc(t('printReport'))}</span>
+        <span class="pick-row__go">›</span>
+      </button>
+      <button class="pick-row" data-go="coverage">
+        <span class="pick-row__emoji">🎯</span>
+        <span class="pick-row__label">${esc(t('coverage'))}</span>
+        <span class="pick-row__go">›</span>
+      </button>
+    </div>
+  </div>`;
+}
+
+function afterPrincipal() {
+  /* Nothing to wire — the report/coverage links use the shared [data-go]
+     handler. The old "send parent reports" button was removed: it only
+     simulated sending, and now that real printable parent summaries exist,
+     a button that pretends to email them would be strictly worse than one
+     that opens the real thing. */
+}
+
+/* ---- Journey view: per-class term trend (Section 5's "journey ... over the
+   term, not just a single day's activity") */
+
+/* ===========================================================================
+   CURRICULUM COVERAGE MAP
+   Done-vs-target per class per subject. The status a principal actually
+   wants is not "how much activity" but "are we going to finish the
+   syllabus" — so every bar is scored against a target and the classes
+   needing attention are surfaced first rather than buried in a table.
+   =========================================================================== */
+
+function coverageStatus(pct) {
+  if (pct >= 90) return { k: 'ahead', cls: 'good' };
+  if (pct >= 65) return { k: 'onTrack', cls: 'mid' };
+  return { k: 'behind', cls: 'low' };
+}
+
+function classCoveragePct(entry) {
+  const done = entry.subjects.reduce((a, s) => a + s.done, 0);
+  const target = entry.subjects.reduce((a, s) => a + s.target, 0);
+  return target ? Math.round((done / target) * 100) : 0;
+}
+
+/* ===========================================================================
+   COVERAGE HEATMAP
+   ---------------------------------------------------------------------------
+   The one idea worth taking from a document that otherwise asked for things
+   this app cannot honestly build yet — a school-wide, at-a-glance view of
+   where coverage is weak, sitting above the existing weakest-first list
+   rather than replacing it. The list answers "which class needs attention
+   first"; the heatmap answers "what does the whole school look like at
+   once" — genuinely different questions, both worth a principal's screen.
+   Built entirely on COVERAGE, the same real dataset every other coverage
+   view already uses. No new numbers, no new claims.
+   Split into two grids rather than one, because the data itself is: middle
+   school (6-9) and the senior science stream (11-12) do not share a subject
+   list, and forcing them into one grid would mean a wall of blank cells
+   wherever a class does not take a given subject — worse to scan, not
+   better.
+   =========================================================================== */
+
+function coverageHeatGrid(classes) {
+  // A stable, shared subject order — a heatmap only reads as a grid if a
+  // subject sits in the same column for every row.
+  const subjects = [];
+  classes.forEach(c => c.subjects.forEach(s => { if (!subjects.includes(s.name)) subjects.push(s.name); }));
+
+  return `<div class="heatgrid" style="--cols:${subjects.length}">
+    <div class="heatgrid__corner"></div>
+    ${subjects.map(s => `<div class="heatgrid__colhead">${esc(s)}</div>`).join('')}
+    ${classes.map(c => `
+      <div class="heatgrid__rowhead">${esc(c.cls)}</div>
+      ${subjects.map(sName => {
+        const sub = c.subjects.find(s => s.name === sName);
+        if (!sub) return `<div class="heatcell heatcell--none">—</div>`;
+        const pct = Math.round((sub.done / sub.target) * 100);
+        const st = coverageStatus(pct);
+        return `<div class="heatcell heatcell--${st.cls}" title="${esc(c.cls)} · ${esc(sName)} · ${sub.done}/${sub.target}">${pct}%</div>`;
+      }).join('')}
+    `).join('')}
+  </div>`;
+}
+
+function viewCoverageHeatmap() {
+  const middle = COVERAGE.filter(c => ['Class 6-A','Class 7-B','Class 8-A','Class 9-B'].includes(c.cls));
+  const senior = COVERAGE.filter(c => !middle.includes(c));
+
+  return `<div class="view">
+    <div class="demo-note">🧪 ${esc(t('demoNote'))}</div>
+    <div class="sec-head"><h2>${esc(t('coverageHeatmap'))}</h2><p>${esc(t('coverageHeatmapSub'))}</p></div>
+
+    <div class="heat-legend">
+      <span><i class="heat-legend__sw heat-legend__sw--good"></i>${esc(t('ahead'))}</span>
+      <span><i class="heat-legend__sw heat-legend__sw--mid"></i>${esc(t('onTrack'))}</span>
+      <span><i class="heat-legend__sw heat-legend__sw--low"></i>${esc(t('behind'))}</span>
+    </div>
+
+    ${middle.length ? `<p class="heat-group-label">${esc(t('heatMiddle'))}</p>${coverageHeatGrid(middle)}` : ''}
+    ${senior.length ? `<p class="heat-group-label" style="margin-top:22px">${esc(t('heatSenior'))}</p>${coverageHeatGrid(senior)}` : ''}
+
+    <button class="card card--tap" style="margin-top:18px;text-align:left;display:flex;align-items:center;gap:12px" data-go="coverage">
+      <span style="font-size:22px">📋</span>
+      <span style="flex:1"><b style="font-family:var(--font-display);font-size:15px">${esc(t('coverage'))}</b><br/><span class="muted" style="font-size:13px">${esc(t('heatBackLink'))}</span></span>
+      <span style="color:var(--dim)">›</span>
+    </button>
+  </div>`;
+}
+
+
+function viewCoverage() {
+  const totalDone = COVERAGE.reduce((a, c) => a + c.subjects.reduce((x, s) => x + s.done, 0), 0);
+  const totalTarget = COVERAGE.reduce((a, c) => a + c.subjects.reduce((x, s) => x + s.target, 0), 0);
+  const overall = Math.round((totalDone / totalTarget) * 100);
+  // Weakest first — a principal opening this screen wants the problem
+  // classes at the top, not alphabetical order.
+  const sorted = [...COVERAGE].sort((a, b) => classCoveragePct(a) - classCoveragePct(b));
+  const needsAttention = sorted.filter(c => classCoveragePct(c) < 65);
+
+  return `<div class="view">
+    <div class="demo-note">🧪 ${esc(t('demoNote'))}</div>
+    <div class="sec-head"><h2>${esc(t('coverage'))}</h2><p>${esc(t('coverageSub'))}</p></div>
+
+    <div class="card reveal" style="margin-bottom:18px;padding:20px;text-align:center">
+      <p class="mono" style="font-size:40px;font-weight:700;line-height:1;color:var(--violet)">${overall}%</p>
+      <p class="muted" style="font-weight:700;margin-top:4px">${esc(t('coverageOverall'))} — ${totalDone}/${totalTarget} ${esc(t('chaptersCovered'))}</p>
+      <div class="bar" style="margin-top:12px"><div class="bar__fill" style="width:${overall}%"></div></div>
+    </div>
+
+    ${needsAttention.length ? `<div class="notice-box" style="margin-bottom:16px">
+      <span class="notice-box__icon">⚠️</span>
+      <span><strong>${esc(t('needsAttention'))}</strong>${needsAttention.map(c => esc(c.cls)).join(', ')} — ${S.locale==='hi'?'लक्ष्य से 65% कम':'under 65% of term target'}</span>
+    </div>` : ''}
+
+    <div class="stagger">
+      ${sorted.map((c, i) => {
+        const pct = classCoveragePct(c);
+        const st = coverageStatus(pct);
+        return `<div class="card cov-class reveal" style="--i:${i}">
+          <div class="cov-class__head">
+            <span class="cov-class__name">${esc(c.cls)}</span>
+            <span class="chip chip--${st.cls === 'good' ? 'sprout' : st.cls === 'mid' ? 'volt' : 'flame'}" style="font-size:12px">${esc(t(st.k))} · ${pct}%</span>
+          </div>
+          ${c.subjects.map(sub => {
+            const sp = Math.round((sub.done / sub.target) * 100);
+            const sst = coverageStatus(sp);
+            return `<div class="cov-row">
+              <span class="cov-row__name">${esc(sub.name)}</span>
+              <span class="cov-row__bar"><span class="cov-row__fill cov-row__fill--${sst.cls}" style="width:${Math.min(100, sp)}%"></span></span>
+              <span class="cov-row__num">${sub.done}/${sub.target}</span>
+            </div>`;
+          }).join('')}
+        </div>`;
+      }).join('')}
+    </div>
+
+    <button class="card card--tap" style="margin-top:16px;text-align:left;display:flex;align-items:center;gap:12px" data-go="coverageHeat">
+      <span style="font-size:22px">🗺️</span>
+      <span style="flex:1"><b style="font-family:var(--font-display);font-size:15px">${esc(t('coverageHeatmap'))}</b><br/><span class="muted" style="font-size:13px">${esc(t('coverageHeatmapSub'))}</span></span>
+      <span style="color:var(--dim)">›</span>
+    </button>
+  </div>`;
+}
+
+/* ===========================================================================
+   REPORTS — printable school report + per-student parent summaries.
+   Both render as a document rather than an app screen, and the print
+   stylesheet strips the shell so what comes out of a printer is a clean
+   sheet of paper. Every report carries a SAMPLE DATA banner: a principal
+   forwarding one of these to a board must not mistake illustrative figures
+   for real student records.
+   =========================================================================== */
+
+function viewReports() {
+  const hp = hashParams();
+  const kind = hp.kind || '';
+
+  if (kind === 'school') return schoolReportDoc();
+  if (kind === 'parent') return parentReportDoc(hp.s || '');
+
+  return `<div class="view">
+    <div class="demo-note">🧪 ${esc(t('demoNote'))}</div>
+    <div class="sec-head"><h2>${esc(t('reports'))}</h2><p>${esc(t('reportsSub'))}</p></div>
+    <div class="pick-list stagger">
+      <button class="pick-row" style="--i:0" data-report="school">
+        <span class="pick-row__emoji">🏫</span>
+        <span class="pick-row__label">${esc(t('schoolReport'))}</span>
+        <span class="pick-row__go">›</span>
+      </button>
+      <button class="pick-row" style="--i:1" data-report="parent">
+        <span class="pick-row__emoji">👨‍👩‍👧</span>
+        <span class="pick-row__label">${esc(t('parentSummary'))}</span>
+        <span class="pick-row__meta">${SAMPLE_STUDENTS.length}</span>
+        <span class="pick-row__go">›</span>
+      </button>
+    </div>
+  </div>`;
+}
+
+function reportDate() {
+  return new Date().toLocaleDateString(S.locale === 'hi' ? 'hi-IN' : 'en-IN', { day: 'numeric', month: 'long', year: 'numeric' });
+}
+
+function schoolReportDoc() {
+  const totalStudents = SCHOOL_DATA.classes.reduce((a, c) => a + c.students, 0);
+  const totalActive = SCHOOL_DATA.classes.reduce((a, c) => a + c.active, 0);
+  const totalChapters = SCHOOL_DATA.classes.reduce((a, c) => a + c.chaptersDone, 0);
+  const engagement = Math.round((totalActive / totalStudents) * 100);
+  const staffDone = SCHOOL_DATA.teachers.filter(x => x.modulesDone === x.of).length;
+  const totalDone = COVERAGE.reduce((a, c) => a + c.subjects.reduce((x, s) => x + s.done, 0), 0);
+  const totalTarget = COVERAGE.reduce((a, c) => a + c.subjects.reduce((x, s) => x + s.target, 0), 0);
+  const coveragePct = Math.round((totalDone / totalTarget) * 100);
+  const topClass = [...SCHOOL_DATA.classes].sort((a, b) => b.avgXp - a.avgXp)[0];
+
+  return `<div class="view">
+    <div class="crumbs no-print">
+      <button data-report="">${esc(t('backToReports'))}</button>
+      <span class="sep">/</span><span class="now">${esc(t('schoolReport'))}</span>
+    </div>
+    <button class="btn btn--violet btn--block no-print" style="margin-bottom:16px" id="printBtn">🖨️ ${esc(t('printReport'))}</button>
+
+    <div class="report-doc" id="reportDoc">
+      <div class="sample-banner">⚠️ ${esc(t('sampleDataWarning'))}</div>
+      <div class="report-doc__head">
+        <p class="report-doc__logo">⚡ VOLDEBUG — AI LITERACY PROGRAMME</p>
+        <h1 class="report-doc__title">${esc(t('schoolReport'))}</h1>
+        <p class="report-doc__meta">${esc(SCHOOL_DATA.name)} · ${esc(SCHOOL_DATA.term)}</p>
+        <p class="report-doc__meta">${esc(t('generatedOn'))} ${esc(reportDate())}</p>
+      </div>
+
+      <p>${esc(t('reportIntro'))}</p>
+
+      <h3>${esc(t('keyHighlights'))}</h3>
+      <div class="report-stats">
+        <div class="report-stat"><div class="report-stat__k">${totalStudents}</div><div class="report-stat__l">${esc(t('students'))}</div></div>
+        <div class="report-stat"><div class="report-stat__k">${engagement}%</div><div class="report-stat__l">${esc(t('activeToday'))}</div></div>
+        <div class="report-stat"><div class="report-stat__k">${totalChapters}</div><div class="report-stat__l">${esc(t('chaptersCovered'))}</div></div>
+        <div class="report-stat"><div class="report-stat__k">${coveragePct}%</div><div class="report-stat__l">${esc(t('coverageOverall'))}</div></div>
+      </div>
+      <p>Across ${SCHOOL_DATA.classes.length} classes, ${totalActive} of ${totalStudents} students were active in the most recent session. The programme has covered ${totalDone} of ${totalTarget} targeted syllabus chapters this term (${coveragePct}%). ${esc(topClass.name)} leads on engagement under ${esc(topClass.teacher)}.</p>
+
+      <h3>${esc(t('classBreakdown'))}</h3>
+      <div class="tbl__scroll"><table class="tbl">
+        <thead><tr><th>Class</th><th>Teacher</th><th>Students</th><th>Active</th><th>Coverage</th></tr></thead>
+        <tbody>
+          ${SCHOOL_DATA.classes.map(c => {
+            const cov = COVERAGE.find(x => x.cls === c.name);
+            const pct = cov ? classCoveragePct(cov) : 0;
+            return `<tr>
+              <td><b>${esc(c.name)}</b></td>
+              <td>${esc(c.teacher)}</td>
+              <td class="mono">${c.students}</td>
+              <td class="mono">${c.active}</td>
+              <td class="mono">${pct}%</td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table></div>
+
+      <h3>${esc(t('staffReadiness'))}</h3>
+      <p>${staffDone} of ${SCHOOL_DATA.teachers.length} teachers have completed all AI-literacy training modules. Teachers have generated ${SCHOOL_DATA.teachers.reduce((a,x)=>a+x.magicUses,0)} lesson resources using the built-in planning tools this term.</p>
+
+      <div class="report-doc__foot">
+        ${esc(SCHOOL_DATA.name)} · ${esc(t('generatedOn'))} ${esc(reportDate())}<br/>
+        Voldebug Innovations Pvt. Ltd. — AI Education Portal
+      </div>
+    </div>
+  </div>`;
+}
+
+/* ===========================================================================
+   WHATSAPP SHARE — for the parent summary only
+   ---------------------------------------------------------------------------
+   What this is: a wa.me deep link, opened with the message already written.
+   WhatsApp itself opens with that text pre-filled, and a person — the
+   teacher or principal looking at this exact report — picks the parent's
+   contact and taps Send themselves. Nothing here sends anything on its own.
+   What this deliberately is not: a WhatsApp Business API integration. That
+   would let the school message a stored list of parents automatically, and
+   doing it honestly needs a backend to hold real credentials, a database of
+   parent numbers, and Meta's own approval for template messages — real
+   infrastructure that does not exist yet. Sending one message at a time,
+   through a human who already has that parent's number, needs none of that.
+   The phone number field below is never saved. It is read at the moment the
+   button is pressed and nowhere else — not into S, not into localStorage —
+   because a parent's number is more sensitive than anything else this demo
+   currently stores, and there is no reason to hold it a moment longer than
+   the click that uses it.
+   =========================================================================== */
+
+function buildParentWhatsAppText(st) {
+  const isHindi = S.locale === 'hi';
+  const first = st.name.split(' ')[0];
+  const lines = isHindi ? [
+    `*वोल्डेबग — प्रगति सारांश*`,
+    `${st.name} · ${st.cls} · ${SCHOOL_DATA.term}`,
+    ``,
+    `⚠️ *नमूना डेटा* — ये आँकड़े उदाहरण हैं, असली परिणाम नहीं।`,
+    ``,
+    `इस सत्र में ${first} ने:`,
+    `• ${st.chapters} अध्याय पूरे किए`,
+    `• ${st.tools} एआई टूल सीखे`,
+    `• ${st.badges} बैज अर्जित किए`,
+    `• सबसे लंबी लय: ${st.streak} दिन`,
+    ``,
+    `✅ अच्छा कर रहे हैं: ${st.strength}`,
+    `🎯 अगला कदम: ${st.growth}`,
+    ``,
+    `— ${SCHOOL_DATA.name}`
+  ] : [
+    `*Voldebug — Progress Summary*`,
+    `${st.name} · ${st.cls} · ${SCHOOL_DATA.term}`,
+    ``,
+    `⚠️ *SAMPLE DATA* — these figures are illustrative, not real results.`,
+    ``,
+    `This term, ${first} has:`,
+    `• Worked through ${st.chapters} chapters`,
+    `• Learned ${st.tools} AI tools`,
+    `• Earned ${st.badges} badges`,
+    `• Best streak: ${st.streak} days`,
+    ``,
+    `✅ Doing well: ${st.strength}`,
+    `🎯 Next step: ${st.growth}`,
+    ``,
+    `— ${SCHOOL_DATA.name}`
+  ];
+  return lines.join('\n');
+}
+
+/* ===========================================================================
+   PARENT HOME
+   ---------------------------------------------------------------------------
+   The request behind this was "let parents trace their child's report."
+   What that means literally — a parent logging in on their own device and
+   seeing their actual child's live progress — needs the same thing every
+   cross-device feature in this app has needed: real accounts and a backend
+   to sync the data between the child's browser and the parent's. Neither
+   exists yet, and this page does not pretend otherwise.
+   What it is instead follows the exact pattern already established for the
+   Teacher and Principal roles: a full, honest preview of the real
+   experience, built on SAMPLE_STUDENTS, clearly labelled as a preview on
+   every visit — not just the first one, since a parent might come back to
+   this page many times over a term and would have every reason to forget a
+   banner they only saw once at onboarding.
+   =========================================================================== */
+
+function viewParentHome() {
+  const st = SAMPLE_STUDENTS.find(x => x.name === S.parentChild) || SAMPLE_STUDENTS[0];
+  const cov = COVERAGE.find(c => c.cls === st.cls);
+  const creations = st.creations || [];
+
+  return `<div class="view">
+    <button class="btn btn--violet btn--block no-print" style="margin-bottom:16px" id="printBtn">🖨️ ${esc(t('printReport'))}</button>
+
+    <div class="card no-print" style="margin-bottom:16px">
+      <p style="font-size:13px;font-weight:900;letter-spacing:1px;text-transform:uppercase;color:var(--dim);margin-bottom:10px">📱 ${esc(t('waSend'))}</p>
+      <div class="field" style="margin-bottom:10px">
+        <label>${esc(t('waNumberLabel'))}</label>
+        <input class="input" id="waNumber" type="tel" inputmode="tel" placeholder="${esc(t('waNumberPh'))}" autocomplete="off"/>
+        <p class="field__hint">${esc(t('waNumberHint'))}</p>
+      </div>
+      <button class="btn btn--primary btn--block" id="waSendBtn">💬 ${esc(t('waSendBtn'))}</button>
+    </div>
+
+    <div class="report-doc" id="reportDoc">
+      <div class="sample-banner">⚠️ ${esc(t('parentPreviewNote'))}</div>
+      <div class="report-doc__head">
+        <p class="report-doc__logo">⚡ VOLDEBUG — AI LITERACY PROGRAMME</p>
+        <h1 class="report-doc__title">${esc(t('parentHome'))}</h1>
+        <p class="report-doc__meta">${esc(st.name)} · ${esc(st.cls)} · ${esc(SCHOOL_DATA.name)}</p>
+        <p class="report-doc__meta">${esc(SCHOOL_DATA.term)} · ${esc(t('generatedOn'))} ${esc(reportDate())}</p>
+      </div>
+
+      <p>${esc(t('parentIntro'))}</p>
+
+      <h3>${esc(t('whatTheyDid'))}</h3>
+      <div class="report-stats">
+        <div class="report-stat"><div class="report-stat__k">${st.chapters}</div><div class="report-stat__l">${esc(t('chaptersWorked'))}</div></div>
+        <div class="report-stat"><div class="report-stat__k">${st.tools}</div><div class="report-stat__l">${esc(t('toolsLearned'))}</div></div>
+        <div class="report-stat"><div class="report-stat__k">${st.badges}</div><div class="report-stat__l">${esc(t('badgesEarnedLabel'))}</div></div>
+        <div class="report-stat"><div class="report-stat__k">${st.streak}</div><div class="report-stat__l">${esc(t('daysStreak'))}</div></div>
+      </div>
+
+      <h3>${esc(t('strengthLabel'))}</h3>
+      <p>${esc(st.name.split(' ')[0])} has been particularly strong at <b>${esc(st.strength)}</b>. Over this term they have worked through ${st.chapters} chapters and learned to use ${st.tools} different AI tools safely as part of their schoolwork.</p>
+
+      <h3>${esc(t('growthLabel'))}</h3>
+      <p>A good focus for the coming weeks would be <b>${esc(st.growth)}</b>. This is a normal next step at this stage and something the class teacher will be supporting in school.</p>
+
+      ${cov ? `<h3>${esc(t('childCoverage'))}</h3>
+      <p style="font-size:13px;color:var(--dim);margin-top:-4px;margin-bottom:10px">${esc(t('childCoverageSub'))}</p>
+      ${cov.subjects.map(sub => {
+        const pct = Math.round((sub.done / sub.target) * 100);
+        const st2 = coverageStatus(pct);
+        return `<div class="cov-row">
+          <span class="cov-row__name">${esc(sub.name)}</span>
+          <span class="cov-row__bar"><span class="cov-row__fill cov-row__fill--${st2.cls}" style="width:${Math.min(100, pct)}%"></span></span>
+          <span class="cov-row__num">${sub.done}/${sub.target}</span>
+        </div>`;
+      }).join('')}` : ''}
+
+      <h3>${esc(t('childPortfolio'))}</h3>
+      ${!creations.length ? `<p class="muted" style="font-size:14px">${esc(t('noChildPortfolio'))}</p>`
+        : creations.map(c => `<div class="creation-card card--ruled" style="box-shadow:none;margin-bottom:10px">
+            <span class="creation-card__emoji">🌟</span>
+            <span class="creation-card__body">
+              <span class="creation-card__title">${esc(c.title)}</span>
+              <span class="creation-card__meta">${esc(c.tool)}</span>
+              ${c.note ? `<p class="creation-card__note">${esc(c.note)}</p>` : ''}
+            </span>
+          </div>`).join('')}
+
+      <div class="report-doc__foot">
+        ${esc(SCHOOL_DATA.name)} · ${esc(t('generatedOn'))} ${esc(reportDate())}<br/>
+        ${esc(t('parentContact'))}
+      </div>
+    </div>
+  </div>`;
+}
+
+function afterParentHome() {
+  const pb = $('#printBtn');
+  if (pb) pb.onclick = () => { haptic(10); window.print(); };
+
+  const waBtn = $('#waSendBtn');
+  if (waBtn) waBtn.onclick = () => {
+    const st = SAMPLE_STUDENTS.find(x => x.name === S.parentChild) || SAMPLE_STUDENTS[0];
+    haptic(10);
+    const digits = ($('#waNumber')?.value || '').replace(/\D/g, '');
+    const text = encodeURIComponent(buildParentWhatsAppText(st));
+    const url = digits ? `https://wa.me/${digits}?text=${text}` : `https://wa.me/?text=${text}`;
+    window.open(url, '_blank', 'noopener');
+  };
+}
+
+/* ===========================================================================
+   PARENT — FAMILY LEARNING
+   A weekend activity to do together, and honest answers to the questions a
+   parent is actually likely to ask. Both reuse the same tap-only pattern
+   established for Voldy: nothing here is a free-text chat, so there is no
+   way for it to answer something it was not written to answer.
+   =========================================================================== */
+
+function viewParentFamily() {
+  const dayIndex = new Date().getDate() % FAMILY_ACTIVITIES.length;
+  const featured = FAMILY_ACTIVITIES[dayIndex];
+
+  return `<div class="view">
+    <div class="sec-head"><h2>${esc(t('familyTitle'))}</h2><p>${esc(t('familySub'))}</p></div>
+
+    <div class="card card--ruled reveal" style="margin-bottom:20px">
+      <p style="font-size:12px;font-weight:900;letter-spacing:1px;text-transform:uppercase;color:var(--violet);margin-bottom:8px">☕ ${esc(t('tryTogether'))}</p>
+      <p style="font-size:14px;color:var(--dim);font-weight:600;margin-bottom:12px">${esc(t('tryTogetherSub'))}</p>
+      <div style="display:flex;gap:12px;align-items:flex-start">
+        <span style="font-size:30px;flex-shrink:0">${featured.emoji}</span>
+        <span>
+          <b style="font-family:var(--font-display);font-size:16px;display:block">${esc(L(featured.title))}</b>
+          <span style="font-size:14px;color:var(--text);opacity:.85;line-height:1.5">${esc(L(featured.body))}</span>
+        </span>
+      </div>
+    </div>
+
+    <div class="sec-head"><h2>${esc(t('miniBites'))}</h2></div>
+    <div class="voldy-list">
+      ${PARENT_MINIBITES.map(m => `<button class="voldy-q" data-bite="${m.key}">
+        <span class="voldy-q__emoji">${m.emoji}</span>
+        <span class="voldy-q__text">${esc(L(m.q))}</span>
+        <span class="voldy-q__go">›</span>
+      </button>`).join('')}
+    </div>
+  </div>`;
+}
+
+function afterParentFamily() {
+  document.querySelectorAll('[data-bite]').forEach(b => b.onclick = () => {
+    haptic(8);
+    const m = PARENT_MINIBITES.find(x => x.key === b.dataset.bite);
+    if (!m) return;
+    sheet(`
+      <div class="voldy-head">
+        <span class="voldy-head__face">${m.emoji}</span>
+        <span class="voldy-head__body"><b>${esc(L(m.q))}</b></span>
+      </div>
+      <div class="voldy-bubble">
+        <span class="voldy-bubble__text">${esc(L(m.a))}</span>
+      </div>
+    `);
+  });
+}
+
+
+
+function parentReportDoc(studentName) {
+  if (!studentName) {
+    return `<div class="view">
+      <div class="crumbs">
+        <button data-report="">${esc(t('backToReports'))}</button>
+        <span class="sep">/</span><span class="now">${esc(t('parentSummary'))}</span>
+      </div>
+      <div class="sec-head"><h2>${esc(t('pickStudent'))}</h2></div>
+      <div class="pick-list stagger">
+        ${SAMPLE_STUDENTS.map((st, i) => `
+          <button class="pick-row" style="--i:${i}" data-pickstudent="${esc(st.name)}">
+            <span class="pick-row__emoji">🎒</span>
+            <span class="pick-row__label">${esc(st.name)}</span>
+            <span class="pick-row__meta">${esc(st.cls)}</span>
+            <span class="pick-row__go">›</span>
+          </button>`).join('')}
+      </div>
+    </div>`;
+  }
+
+  const st = SAMPLE_STUDENTS.find(x => x.name === studentName);
+  if (!st) return parentReportDoc('');
+
+  return `<div class="view">
+    <div class="crumbs no-print">
+      <button data-report="">${esc(t('backToReports'))}</button>
+      <span class="sep">/</span>
+      <button data-report="parent">${esc(t('parentSummary'))}</button>
+      <span class="sep">/</span><span class="now">${esc(st.name)}</span>
+    </div>
+    <button class="btn btn--violet btn--block no-print" style="margin-bottom:16px" id="printBtn">🖨️ ${esc(t('printReport'))}</button>
+
+    <div class="card no-print" style="margin-bottom:16px">
+      <p style="font-size:13px;font-weight:900;letter-spacing:1px;text-transform:uppercase;color:var(--dim);margin-bottom:10px">📱 ${esc(t('waSend'))}</p>
+      <div class="field" style="margin-bottom:10px">
+        <label>${esc(t('waNumberLabel'))}</label>
+        <input class="input" id="waNumber" type="tel" inputmode="tel" placeholder="${esc(t('waNumberPh'))}" autocomplete="off"/>
+        <p class="field__hint">${esc(t('waNumberHint'))}</p>
+      </div>
+      <button class="btn btn--primary btn--block" id="waSendBtn">💬 ${esc(t('waSendBtn'))}</button>
+    </div>
+
+    <div class="report-doc" id="reportDoc">
+      <div class="sample-banner">⚠️ ${esc(t('sampleDataWarning'))}</div>
+      <div class="report-doc__head">
+        <p class="report-doc__logo">⚡ VOLDEBUG — AI LITERACY PROGRAMME</p>
+        <h1 class="report-doc__title">${esc(t('parentReportFor'))} ${esc(st.name)}</h1>
+        <p class="report-doc__meta">${esc(st.cls)} · ${esc(SCHOOL_DATA.name)}</p>
+        <p class="report-doc__meta">${esc(SCHOOL_DATA.term)} · ${esc(t('generatedOn'))} ${esc(reportDate())}</p>
+      </div>
+
+      <p>${esc(t('parentIntro'))}</p>
+
+      <h3>${esc(t('whatTheyDid'))}</h3>
+      <div class="report-stats">
+        <div class="report-stat"><div class="report-stat__k">${st.chapters}</div><div class="report-stat__l">${esc(t('chaptersWorked'))}</div></div>
+        <div class="report-stat"><div class="report-stat__k">${st.tools}</div><div class="report-stat__l">${esc(t('toolsLearned'))}</div></div>
+        <div class="report-stat"><div class="report-stat__k">${st.badges}</div><div class="report-stat__l">${esc(t('badgesEarnedLabel'))}</div></div>
+        <div class="report-stat"><div class="report-stat__k">${st.streak}</div><div class="report-stat__l">${esc(t('daysStreak'))}</div></div>
+      </div>
+
+      <h3>${esc(t('strengthLabel'))}</h3>
+      <p>${esc(st.name.split(' ')[0])} has been particularly strong at <b>${esc(st.strength)}</b>. Over this term they have worked through ${st.chapters} chapters and learned to use ${st.tools} different AI tools safely as part of their schoolwork.</p>
+
+      <h3>${esc(t('growthLabel'))}</h3>
+      <p>A good focus for the coming weeks would be <b>${esc(st.growth)}</b>. This is a normal next step at this stage and something the class teacher will be supporting in school.</p>
+
+      <div class="report-doc__foot">
+        ${esc(SCHOOL_DATA.name)} · ${esc(t('generatedOn'))} ${esc(reportDate())}<br/>
+        Questions? Please contact your child's class teacher.
+      </div>
+    </div>
+  </div>`;
+}
+
+function afterReports() {
+  document.querySelectorAll('[data-report]').forEach(b => b.onclick = () => {
+    haptic(8);
+    const kind = b.dataset.report;
+    pushHash('reports', kind ? { kind } : {});
+  });
+  document.querySelectorAll('[data-pickstudent]').forEach(b => b.onclick = () => {
+    haptic(8); pushHash('reports', { kind: 'parent', s: b.dataset.pickstudent });
+  });
+  const pb = $('#printBtn');
+  if (pb) pb.onclick = () => { haptic(10); window.print(); };
+
+  const waBtn = $('#waSendBtn');
+  if (waBtn) waBtn.onclick = () => {
+    const hp = hashParams();
+    const st = SAMPLE_STUDENTS.find(x => x.name === hp.s);
+    if (!st) return;
+    haptic(10);
+    // Read the field at the moment of the click and nowhere else — this
+    // number is never assigned to S, so it never reaches save() or
+    // localStorage. Digits only: wa.me does not accept +, spaces, or dashes.
+    const digits = ($('#waNumber')?.value || '').replace(/\D/g, '');
+    const text = encodeURIComponent(buildParentWhatsAppText(st));
+    const url = digits ? `https://wa.me/${digits}?text=${text}` : `https://wa.me/?text=${text}`;
+    window.open(url, '_blank', 'noopener');
+  };
+}
+
+function viewJourney() {
+  return `<div class="view">
+    <div class="sec-head"><h2>${esc(t('journey'))}</h2><p>${esc(t('journeySub'))}</p></div>
+    <div class="stagger">
+      ${SCHOOL_DATA.classes.map((c, i) => {
+        const max = Math.max(...c.trend);
+        return `<div class="card journey-row" style="--i:${i}">
+          <div class="journey-row__head">
+            <span class="journey-row__name">${esc(c.name)}</span>
+            <span class="chip chip--sprout" style="font-size:12px">${c.chaptersDone} ${S.locale==='hi'?'अध्याय पूर्ण':'chapters done'}</span>
+          </div>
+          <p class="muted" style="font-size:12px;font-weight:700;margin-bottom:8px">${esc(t('termTrend'))} — ${esc(c.teacher)}</p>
+          <div class="sparkline">
+            ${c.trend.map(v => `<div class="sparkline__bar" style="height:${Math.max(8,(v/max)*40)}px" title="${v}"></div>`).join('')}
+          </div>
+        </div>`;
+      }).join('')}
+    </div>
+  </div>`;
+}
+
+/* ---- Flags: misuse alerts. Honesty note is load-bearing here — see
+   guardrailsHonesty / protoNoticeBody, both written to be read together. */
+
+function viewFlags() {
+  const reviewed = loadFlagReviewState();
+  return `<div class="view">
+    <div class="sec-head"><h2>${esc(t('flags'))}</h2><p>${esc(t('flagsSub'))}</p></div>
+    <div class="notice-box" style="margin-bottom:16px">
+      <span class="notice-box__icon">⚠️</span>
+      <span><strong>${esc(t('protoNoticeTitle'))}</strong>${esc(t('protoNoticeBody'))}</span>
+    </div>
+    <div class="stagger">
+      ${FLAGS.map((f, i) => {
+        const isReviewed = !!reviewed[i];
+        return `<div class="card flag-item flag-item--${f.sev} ${isReviewed?'reviewed':''}" style="--i:${i}">
+          <span class="flag-item__icon">${f.sev==='high'?'🔴':f.sev==='med'?'🟠':'🔵'}</span>
+          <span class="flag-item__body">
+            <span class="flag-item__title">${esc(f.student)} — ${esc(f.cls)}</span>
+            <p style="font-size:13px;margin-top:3px">${esc(L(f.reason))}</p>
+            <span class="flag-item__meta">${esc(f.time)}${isReviewed ? ' · ' + esc(t('reviewed')) : ''}</span>
+          </span>
+          ${!isReviewed ? `<button class="btn btn--ghost" style="font-size:13px;padding:8px 14px;flex-shrink:0" data-reviewflag="${i}">${esc(t('markReviewed'))}</button>` : ''}
+        </div>`;
+      }).join('')}
+    </div>
+  </div>`;
+}
+
+function afterFlags() {
+  document.querySelectorAll('[data-reviewflag]').forEach(b => b.onclick = () => {
+    const idx = b.dataset.reviewflag;
+    const rev = loadFlagReviewState();
+    rev[idx] = true;
+    saveFlagReviewState(rev);
+    haptic(15); render();
+  });
+}
+
+/* ------------------------------------------------------------- onboarding */
+
+let onbStep = 0, onbDraft = { role: 'student', avatar: 'fox', name: '', code: '', classGroup: 'middle', parentChild: '' };
+
+function viewOnboarding() {
+  // Each role walks a different-length path: student goes deepest (class
+  // band + class code), parent has one extra step over teacher/principal
+  // (picking which sample child to preview), teacher/principal stop after
+  // the avatar. Building the step list per role, rather than extending an
+  // ever-growing chain of role checks, keeps a 4th shape from having to
+  // reason about the other three.
+  const isStudent = onbDraft.role === 'student';
+  const isParent = onbDraft.role === 'parent';
+  const steps = isStudent ? [onbRole, onbClassGroup, onbAvatar, onbClass]
+    : isParent ? [onbRole, onbAvatar, onbParentChild]
+    : [onbRole, onbAvatar];
+  const body = steps[onbStep]();
+  const stepCount = steps.length;
+
+  return `<div class="onb" data-group="${onbDraft.classGroup}"><div class="onb__panel view">
+    <div class="onb__steps">${Array.from({length: stepCount}).map((_, i) => `<span class="${i <= onbStep ? 'on' : ''}"></span>`).join('')}</div>
+    ${body}
+  </div></div>`;
+}
+
+function onbRole() {
+  return `<div class="onb__voldy">🤖</div>
+    <h1>${esc(t('whoAreYou'))}</h1>
+    <p class="sub">${esc(t('onbSub1'))}</p>
+    <div class="picks" style="grid-template-columns:repeat(2,1fr);gap:9px">
+      <button class="pick ${onbDraft.role === 'student' ? 'on' : ''}" data-role="student"><em>🎒</em>${esc(t('student_r'))}</button>
+      <button class="pick ${onbDraft.role === 'teacher' ? 'on' : ''}" data-role="teacher"><em>🍎</em>${esc(t('teacher_r'))}</button>
+      <button class="pick ${onbDraft.role === 'principal' ? 'on' : ''}" data-role="principal"><em>🏛️</em>${esc(t('principal_r'))}</button>
+      <button class="pick ${onbDraft.role === 'parent' ? 'on' : ''}" data-role="parent"><em>👪</em>${esc(t('parent_r'))}</button>
+    </div>
+    <div class="field" style="margin-top:18px">
+      <label>${esc(t('whatsYourName'))}</label>
+      <input class="input" id="onbName" value="${esc(onbDraft.name)}" placeholder="${esc(S.locale === 'hi' ? 'आपका नाम' : 'Your name')}" autocomplete="given-name"/>
+      <p class="field__err" id="nameErr"></p>
+    </div>
+    <button class="btn btn--violet btn--block" id="onbNext">${esc(t('continue'))}</button>
+    <div style="text-align:center;margin-top:14px">
+      <button class="chip" data-act="lang">${S.locale === 'en' ? 'हिंदी में देखें' : 'View in English'}</button>
+    </div>`;
+}
+
+function onbBackLink() {
+  return `<button class="chip" id="onbBack" style="margin-bottom:14px">← ${esc(t('backStep'))}</button>`;
+}
+
+function onbClassGroup() {
+  const groups = [
+    { k: 'junior', emoji: '🌈', label: { en: 'Nursery – Class 5', hi: 'नर्सरी – कक्षा 5' }, sub: { en: 'Big fonts, fun tools, stories & art', hi: 'बड़े अक्षर, मज़ेदार टूल, कहानियाँ और कला' } },
+    { k: 'middle', emoji: '📚', label: { en: 'Class 6 – 9', hi: 'कक्षा 6 – 9' }, sub: { en: 'Core AI tools with quizzes & streaks', hi: 'क्विज़ और लय के साथ मुख्य टूल' } },
+    { k: 'senior', emoji: '🎓', label: { en: 'Class 10 – 12', hi: 'कक्षा 10 – 12' }, sub: { en: 'Career tools — code, research, college prep', hi: 'करियर टूल — कोड, शोध, कॉलेज तैयारी' } }
+  ];
+  return `${onbBackLink()}
+    <div class="onb__voldy">🏫</div>
+    <h1>${esc(S.locale === 'hi' ? 'आप किस कक्षा में हैं?' : 'Which class are you in?')}</h1>
+    <p class="sub">${esc(S.locale === 'hi' ? 'यह आपका अनुभव बदलता है।' : 'This changes your whole experience.')}</p>
+    <div class="picks" style="gap:10px">
+      ${groups.map(g => `<button class="pick row-pick ${onbDraft.classGroup === g.k ? 'on' : ''}" data-grp="${g.k}">
+        <em style="font-size:32px;flex-shrink:0">${g.emoji}</em>
+        <span>
+          <b style="display:block;font-size:17px">${esc(L(g.label))}</b>
+          <span style="font-size:13px;opacity:.72;font-weight:600">${esc(L(g.sub))}</span>
+        </span>
+      </button>`).join('')}
+    </div>
+    <button class="btn btn--violet btn--block" style="margin-top:18px" id="onbNext">${esc(t('continue'))}</button>`;
+}
+
+function onbAvatar() {
+  return `${onbBackLink()}
+    <div class="onb__voldy">🎨</div>
+    <h1>${esc(t('pickAvatar'))}</h1>
+    <p class="sub">${esc(t('onbSub2'))}</p>
+    <div class="avatars">
+      ${AVATARS.map(a => `<button class="pick ${onbDraft.avatar === a.k ? 'on' : ''}" data-av="${a.k}"><em>${a.e}</em>${esc(a.n)}</button>`).join('')}
+    </div>
+    <button class="btn btn--violet btn--block" style="margin-top:20px" id="onbNext">${esc(t('continue'))}</button>`;
+}
+
+function onbClass() {
+  return `${onbBackLink()}
+    <div class="onb__voldy">🏫</div>
+    <h1>${esc(t('joinClass'))}</h1>
+    <p class="sub">${esc(t('onbSub3'))}</p>
+    <div class="field">
+      <input class="input input--code" id="onbCode" maxlength="6" placeholder="ABC123" value="${esc(onbDraft.code)}" autocomplete="off"/>
+      <p class="field__err" id="codeErr"></p>
+    </div>
+    <button class="btn btn--violet btn--block" id="onbNext">${esc(t('continue'))}</button>
+    <button class="btn btn--ghost btn--block" style="margin-top:10px" id="onbSkip">${esc(t('skip'))}</button>`;
+}
+
+function onbParentChild() {
+  return `${onbBackLink()}
+    <div class="onb__voldy">👪</div>
+    <h1>${esc(t('onbParentWho'))}</h1>
+    <p class="sub">${esc(t('onbParentWhoSub'))}</p>
+    <div class="picks" style="gap:10px">
+      ${SAMPLE_STUDENTS.map(st => `<button class="pick row-pick ${onbDraft.parentChild === st.name ? 'on' : ''}" data-child="${esc(st.name)}">
+        <em style="font-size:28px;flex-shrink:0">🎒</em>
+        <span>
+          <b style="display:block;font-size:16px">${esc(st.name)}</b>
+          <span style="font-size:13px;opacity:.72;font-weight:600">${esc(st.cls)}</span>
+        </span>
+      </button>`).join('')}
+    </div>
+    <button class="btn btn--violet btn--block" style="margin-top:18px" id="onbNext">${esc(t('continue'))}</button>
+    <p class="field__err" id="childErr" style="text-align:center"></p>`;
+}
+
+function afterOnboarding() {
+  document.querySelectorAll('[data-role]').forEach(b => b.onclick = () => { onbDraft.role = b.dataset.role; haptic(); render(); });
+  document.querySelectorAll('[data-grp]').forEach(b => b.onclick = () => { onbDraft.classGroup = b.dataset.grp; haptic(); chime([659.25]); render(); });
+  document.querySelectorAll('[data-av]').forEach(b => b.onclick = () => { onbDraft.avatar = b.dataset.av; haptic(); chime([659.25]); render(); });
+  document.querySelectorAll('[data-child]').forEach(b => b.onclick = () => { onbDraft.parentChild = b.dataset.child; haptic(); chime([659.25]); render(); });
+
+  const name = $('#onbName');
+  if (name) name.oninput = () => { onbDraft.name = name.value; };
+
+  const code = $('#onbCode');
+  if (code) code.oninput = () => { onbDraft.code = code.value.toUpperCase().replace(/[^A-Z0-9]/g, ''); code.value = onbDraft.code; };
+
+  const finish = () => {
+    S = {
+      ...S, onboarded: true, role: onbDraft.role, name: onbDraft.name.trim(),
+      classGroup: onbDraft.classGroup, avatar: onbDraft.avatar, classCode: onbDraft.code,
+      parentChild: onbDraft.parentChild,
+      xp: XP.onboard + XP.avatar + (onbDraft.code ? XP.classJoin : 0),
+      cat: 'all', exploreCat: null,
+      streak: 1, best: 1, week: [0, 0, 0, 0, 0, 0, 1]
+    };
+    if (onbDraft.role === 'student') S.badges = BADGES.filter(b => b.need(ctx())).map(b => b.k);
+    save();
+    // Already signed in (rare — signing in happens from Profile, after
+    // onboarding): tell the server who this is. Guests: both are no-ops.
+    syncOnboard();
+    pushEvent('avatar_set', { avatar: S.avatar });
+    location.hash = '#/' + (S.role === 'teacher' ? 'teacher' : S.role === 'principal' ? 'principal' : S.role === 'parent' ? 'parent' : 'home');
+    render();
+    if (S.role === 'student') setTimeout(() => { confetti(); chime([523.25, 659.25, 783.99]); }, 320);
+    // Guest-first stays guest-first: this is a hint, never a step.
+    if (!signedIn()) setTimeout(() => toast('☁️ ' + t('cloudTip')), 2600);
+  };
+
+  const next = $('#onbNext');
+  if (next) next.onclick = () => {
+    const role = onbDraft.role;
+    if (onbStep === 0) {
+      if (!onbDraft.name.trim()) { $('#nameErr').textContent = t('nameErr'); haptic(60); return; }
+      onbStep = 1; render(); return; // everyone sees the avatar step next
+    }
+    if (onbStep === 1) {
+      if (role === 'teacher' || role === 'principal') { finish(); return; } // avatar was the last step for these two
+      onbStep = 2; render(); return; // student -> class group; parent -> pick a child
+    }
+    if (onbStep === 2) {
+      if (role === 'parent') {
+        if (!onbDraft.parentChild) { $('#childErr').textContent = t('childErr'); haptic(60); return; }
+        finish(); return;
+      }
+      onbStep = 3; render(); return; // student -> class code
+    }
+    if (onbDraft.code && onbDraft.code.length !== 6) { $('#codeErr').textContent = t('codeErr'); haptic(60); return; }
+    finish();
+  };
+
+  const skip = $('#onbSkip');
+  if (skip) skip.onclick = () => { onbDraft.code = ''; finish(); };
+
+  const back = $('#onbBack');
+  if (back) back.onclick = () => { haptic(8); onbStep = Math.max(0, onbStep - 1); render(); };
+}
+
+/* ------------------------------------------------------------------ render */
+
+let lastRoute = null;
+
+/* Only #appRoot is re-rendered. The confetti canvas and the toast live outside
+   it in index.html, so an XP toast fired just before a re-render is not wiped
+   off the screen half a frame after it appears. */
+function render() {
+  document.documentElement.dataset.theme = S.dark ? 'dark' : 'light';
+  document.documentElement.dataset.group = S.role === 'student' ? (S.classGroup || 'middle') : '';
+  document.documentElement.dataset.route = S.onboarded ? currentRoute() : 'onboarding';
+  document.documentElement.lang = S.locale;
+  const root = $('#appRoot');
+  if (!root) return;
+
+  if (!S.onboarded) {
+    root.innerHTML = viewOnboarding();
+    afterOnboarding();
+    wireGlobal();
+    lastRoute = null;
+    return;
+  }
+
+  const route = currentRoute();
+  if (S.role === 'student') syncStarter();
+  const view = {
+    home: viewHome, explore: viewExplore, curriculum: viewCurriculum, prompts: viewPromptLibrary,
+    creations: viewCreations, search: viewSearch, voyage: viewVoyage, badges: viewBadges,
+    board: viewBoard, profile: viewProfile, quiz: viewQuiz,
+    teacher: viewTeacher, live: viewLive, magic: viewMagic, upskill: viewUpskill, planner: viewPlanner, papers: viewPapers,
+    principal: viewPrincipal, journey: viewJourney, flags: viewFlags,
+    coverage: viewCoverage, coverageHeat: viewCoverageHeatmap, reports: viewReports,
+    parent: viewParentHome, family: viewParentFamily
+  }[route] || viewHome;
+
+  root.innerHTML = shell();
+  $('#viewRoot').innerHTML = view();
+
+  ({
+    home: afterHome, quiz: afterQuiz, profile: afterProfile, teacher: afterTeacher,
+    live: afterLive, principal: afterPrincipal, explore: afterExplore,
+    curriculum: afterCurriculum, board: afterBoard, magic: afterMagic,
+    upskill: afterUpskill, flags: afterFlags, prompts: afterPromptLibrary,
+    reports: afterReports, creations: afterCreations, search: afterSearch, planner: afterPlanner,
+    voyage: afterVoyage, papers: afterPapers,
+    parent: afterParentHome, family: afterParentFamily
+  }[route] || (() => {}))();
+
+  observeReveals($('#viewRoot'));
+  wireGlobal();
+
+  // Toggling the theme should not throw the reader back to the top of the page.
+  if (route !== lastRoute) {
+    window.scrollTo({ top: 0, behavior: 'auto' });
+    // Leaving the voyage resets it to the pad, so arriving is always a launch
+    // rather than dropping into a half-finished animation.
+    if (lastRoute === 'voyage' && route !== 'voyage') { voyagePhase = 'pad'; clearTimeout(voyageTimer); }
+    lastRoute = route;
+  }
+}
+
+function voldyTopicListHtml() {
+  return `<div class="voldy-head">
+      <span class="voldy-head__face">${groupCfg().voldy}</span>
+      <span class="voldy-head__body">
+        <b>${esc(t('voldyHi'))}</b>
+        <span>${esc(t('voldyIntro'))}</span>
+      </span>
+    </div>
+    <div class="voldy-list">
+      ${VOLDY_TOPICS.map(top => `<button class="voldy-q" data-voldyq="${top.key}">
+        <span class="voldy-q__emoji">${top.emoji}</span>
+        <span class="voldy-q__text">${esc(L(top.q))}</span>
+        <span class="voldy-q__go">›</span>
+      </button>`).join('')}
+    </div>`;
+}
+
+function voldyAnswerHtml(topic) {
+  return `<button class="voldy-back" data-voldyback="1">‹ ${esc(t('voldyBack'))}</button>
+    <div class="voldy-bubble">
+      <span class="voldy-bubble__face">${groupCfg().voldy}</span>
+      <span class="voldy-bubble__text">${esc(L(topic.a))}</span>
+    </div>
+    ${topic.route ? `<button class="btn btn--violet btn--block" data-voldygoto="${topic.route}">${esc(t('voldyTakeThere'))}</button>` : ''}
+    ${topic.act ? `<button class="btn btn--violet btn--block" data-voldydoact="${topic.act}">${esc(t('voldyTakeThere'))}</button>` : ''}`;
+}
+
+function openVoldySheet() {
+  sheet(`<div id="voldyBody">${voldyTopicListHtml()}</div>`, (node, close) => {
+    const wire = () => {
+      const body = node.querySelector('#voldyBody');
+      body.querySelectorAll('[data-voldyq]').forEach(b => b.onclick = () => {
+        haptic(8);
+        const topic = VOLDY_TOPICS.find(x => x.key === b.dataset.voldyq);
+        if (!topic) return;
+        body.innerHTML = voldyAnswerHtml(topic);
+        wire();
+      });
+      const back = body.querySelector('[data-voldyback]');
+      if (back) back.onclick = () => { haptic(8); body.innerHTML = voldyTopicListHtml(); wire(); };
+      const goBtn = body.querySelector('[data-voldygoto]');
+      if (goBtn) goBtn.onclick = () => { haptic(8); close(); go(goBtn.dataset.voldygoto); };
+      const actBtn = body.querySelector('[data-voldydoact]');
+      if (actBtn) actBtn.onclick = () => {
+        haptic(8);
+        const a = actBtn.dataset.voldydoact;
+        if (a === 'lang') { S.locale = S.locale === 'en' ? 'hi' : 'en'; pushEvent('settings', { locale: S.locale, dark: !!S.dark }); }
+        save(); close(); render();
+      };
+    };
+    wire();
+  });
+}
+
+function wireGlobal() {
+  const fab = $('#voldyFab');
+  if (fab) fab.onclick = () => { haptic(10); openVoldySheet(); };
+
+  document.querySelectorAll('[data-go]').forEach(b => b.onclick = () => { haptic(8); go(b.dataset.go); });
+  document.querySelectorAll('[data-tool]').forEach(b => {
+    if (b.hasAttribute('data-opencat') || b.hasAttribute('data-board') || b.hasAttribute('data-magicgen')) return;
+    b.onclick = () => { haptic(8); toolSheet(b.dataset.tool); };
+  });
+  document.querySelectorAll('[data-cat]').forEach(b => b.onclick = () => { S.cat = b.dataset.cat; save(); render(); });
+
+  document.querySelectorAll('[data-act]').forEach(b => {
+    b.onclick = () => {
+      const a = b.dataset.act;
+      if (a === 'theme') S.dark = !S.dark;
+      if (a === 'sound') { S.sound = !S.sound; if (S.sound) chime([659.25]); }
+      if (a === 'lang') S.locale = S.locale === 'en' ? 'hi' : 'en';
+      if (a === 'theme' || a === 'lang') pushEvent('settings', { locale: S.locale, dark: !!S.dark });
+      if (a === 'reset') {
+        // "Start over" wipes the device. Leaving a signed-in token behind
+        // would let the next boot hydrate all of it straight back.
+        forceSignOut(false);
+        store.clear(); S = { ...DEFAULTS }; onbStep = 0;
+        onbDraft = { role: 'student', avatar: 'fox', name: '', code: '', classGroup: 'middle', parentChild: '' };
+        liveState = { active: false, code: '', qIndex: 0, answered: false, results: {} };
+        quizState = null; upskillQuizState = null;
+        promptDraft = { topic: '', cls: '', subject: '', chapter: '', count: '8' };
+        S.lessonPlan = {}; S.planMeta = { cls: '', week: '' }; S.starterDone = []; S.badgeDates = {}; S.timeline = []; S.sandboxDraft = '';
+        S.paperSetup = { cls: '', subject: '', chapterIds: [], marks: '80', duration: '3', pattern: 'four', easy: '40', medium: '35', hard: '25' };
+        starterAwardPending = false;
+        justPickedTemplate = false;
+        clearTimeout(searchDebounce); searchDebounce = null;
+        takeoverQueue = []; takeoverActive = false;
+        document.querySelectorAll('.over').forEach(n => n.remove());
+        location.hash = '';
+      }
+      save(); haptic(); render();
+    };
+  });
+}
+
+addEventListener('resize', () => {
+  const cv = $('#confetti');
+  if (cv) { cv.width = innerWidth; cv.height = innerHeight; }
+});
+
+/* --------------------------------------------------------- installability */
+
+/* Chrome/Edge/Android fire this once, early, and only if the browser has
+   already decided the app is installable — missing it means losing it for
+   the whole session, so it is captured here rather than inside a render
+   path that might not run until well after the event has already fired. */
+let deferredInstallPrompt = null;
+let appInstalled = matchMedia('(display-mode: standalone)').matches
+  || navigator.standalone === true; // iOS Safari's own flag for "already added to home screen"
+
+addEventListener('beforeinstallprompt', e => {
+  e.preventDefault();
+  deferredInstallPrompt = e;
+  if (currentRoute && currentRoute() === 'profile') render();
+});
+addEventListener('appinstalled', () => {
+  appInstalled = true;
+  deferredInstallPrompt = null;
+  if (currentRoute && currentRoute() === 'profile') render();
+});
+
+render();
+
+/* Local state is on screen before a single byte goes out: sync is strictly a
+   second pass that corrects it, never a precondition for showing anything. */
+bootSync();

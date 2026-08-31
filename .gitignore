@@ -39,3 +39,6 @@ prisma/migrations/*.sql (keep these in git though)
 
 # Testing
 coverage/
+
+# SPA build artifact is deployed as-is by nginx; keep it tracked.
+!apps/spa/dist/

@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+<meta name="theme-color" content="#16223B"/>
+<meta name="description" content="Voldebug — learn to use AI tools well. Built for students in classes 6 to 12."/>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+<meta name="mobile-web-app-capable" content="yes"/>
+
+<meta property="og:title" content="Voldebug — AI Education Portal"/>
+<meta property="og:description" content="Learn to use AI tools well. Earn XP, keep your streak, master a tool a week."/>
+<meta property="og:type" content="website"/>
+
+<title>Voldebug — AI Education Portal</title>
+
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>"/>
+<link rel="manifest" href="/app/manifest.json"/>
+<link rel="apple-touch-icon" href="/app/icon-192.png"/>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Eczar:wght@500;600;700;800&family=Mukta:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet"/>
+
+<style>/*__CSS__*/</style>
+</head>
+<body>
+
+<div id="appRoot"></div>
+
+<!-- Overlay layer: deliberately outside #appRoot so it survives a re-render -->
+<canvas id="confetti"></canvas>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script>/*__JS__*/</script>
+
+<!-- Registered after the app has booted, and scoped to /app/ so the worker
+     can never claim the API at /v1 or anything else on this origin. A failed
+     registration (file:// preview, private mode, no HTTPS) is silent by
+     design: the app works without it. -->
+<script>
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', function () {
+    navigator.serviceWorker.register('/app/sw.js', { scope: '/app/' }).catch(function () {});
+  });
+}
+</script>
+</body>
+</html>
