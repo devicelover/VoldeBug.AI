@@ -4006,6 +4006,8 @@ async function api(path, opts) {
    too, and wiping it here would punish someone for logging out. */
 function forceSignOut(announce) {
   lsDel(TOKEN_KEY); lsDel(USER_KEY); lsDel(QUEUE_KEY);
+  // Classmates' names belong to the signed-in session only.
+  try { liveBoard = null; } catch {}
   clearTimeout(flushTimer);
   if (announce) toast(t('cloudSignedOutMsg'));
   try { if (S.onboarded && currentRoute() === 'profile') render(); } catch {}
@@ -6757,19 +6759,45 @@ function classRank() {
   return [...PEERS, me].sort((a, b) => b.xp - a.xp).findIndex(x => x.me) + 1;
 }
 
+/* Live board: real classmates from the server once a signed-in student has
+   joined a class with at least one other member. Anything short of that keeps
+   the illustrative PEERS list, so the screen never renders empty or lonely.
+   Cached for a minute — rank changes don't need to be more real-time than
+   the next visit to this tab. */
+let liveBoard = null;
+let liveBoardLoading = false;
+
+function avatarEmoji(key) { const a = AVATARS.find(x => x.k === key); return a ? a.e : '🦊'; }
+
+function fetchLiveBoard() {
+  if (!signedIn() || liveBoardLoading) return;
+  if (liveBoard && Date.now() - liveBoard.at < 60e3) return;
+  liveBoardLoading = true;
+  api('/journey/leaderboard').then(p => {
+    const d = p && p.data;
+    if (d && d.scope === 'class' && Array.isArray(d.entries) && d.entries.length > 1) {
+      liveBoard = { entries: d.entries, at: Date.now() };
+      if (currentRoute() === 'board') render();
+    }
+  }).catch(() => {}).finally(() => { liveBoardLoading = false; });
+}
+
 function viewBoard() {
-  const weekly = S.boardWeek;
+  const live = liveBoard && signedIn() ? liveBoard.entries : null;
+  const weekly = !live && S.boardWeek;
   const av = AVATARS.find(a => a.k === S.avatar) || AVATARS[0];
   const me = { n: (S.name.trim() || 'You'), a: av.e, xp: S.xp, w: Math.round(S.xp * 0.22), me: true };
-  const all = [...PEERS, me].sort((a, b) => (weekly ? b.w - a.w : b.xp - a.xp));
+  const all = live
+    ? live.map(e => ({ n: e.isMe ? (S.name.trim() || 'You') : e.name, a: avatarEmoji(e.avatar), xp: e.xp, w: 0, me: e.isMe }))
+    : [...PEERS, me].sort((a, b) => (weekly ? b.w - a.w : b.xp - a.xp));
 
   return `<div class="view">
     <div class="sec-head"><h2>${esc(t('classBoard'))}</h2></div>
     <p class="muted" style="font-weight:600;font-size:15px;margin-bottom:14px">${esc(t('boardSub'))}</p>
-    <div class="segment" style="margin-bottom:14px">
+    ${live ? `<p class="chip chip--flame" style="margin-bottom:14px">● ${S.locale === 'hi' ? 'लाइव — आपकी असली क्लास' : 'Live — your real class'}</p>` : `<div class="segment" style="margin-bottom:14px">
       <button class="${!weekly ? 'on' : ''}" data-board="all">${esc(t('allTime'))}</button>
       <button class="${weekly ? 'on' : ''}" data-board="week">${esc(t('thisWeek'))}</button>
-    </div>
+    </div>`}
     <div class="card board">
       ${all.map((r, i) => `<div class="row ${r.me ? 'me' : ''}" style="--i:${i}">
         <span class="row__rank">${i + 1}</span>
@@ -6783,6 +6811,7 @@ function viewBoard() {
 
 function afterBoard() {
   document.querySelectorAll('[data-board]').forEach(b => b.onclick = () => { S.boardWeek = b.dataset.board === 'week'; save(); render(); });
+  fetchLiveBoard();
 }
 
 /* ----------------------------------------------------------------- profile */
