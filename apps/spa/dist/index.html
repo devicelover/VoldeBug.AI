@@ -2870,7 +2870,20 @@ const T = {
     cloudWelcome: 'Signed in — syncing your progress',
     cloudSignedOutMsg: 'Signed out. Your progress stays on this device.',
     cloudHaveAccount: 'I already have an account', cloudNoAccount: 'I need an account',
-    cloudTip: 'Tip: sign in from Profile to keep your progress safe.'
+    cloudTip: 'Tip: sign in from Profile to keep your progress safe.',
+    myClasses: 'My classes', createClass: 'Create a class', className: 'Class name',
+    classNameErr: 'Give the class a name', classCreated: 'Class created',
+    classCreateForbidden: 'Sign in with a teacher account to create a class',
+    noClassesYet: 'No classes yet',
+    noClassesSub: 'Create one and share its code — students who type it in appear here.',
+    rosterLoading: 'Loading your class…',
+    rosterUnavailable: 'Could not load this class right now.',
+    rosterEmpty: 'Nobody has joined yet',
+    rosterEmptySub: 'Share this code with your students:',
+    teacherCloudHint: 'Sample class. Sign in from Profile to create a real class and see your own students here.',
+    teacherLive: 'Live — your real classes', principalLive: 'Live — your school',
+    teachersLabel: 'Teachers', activeThisWeek: 'Active this week', classGroupLabel: 'Class group',
+    classCodeNotFound: 'Code not found — ask your teacher', classJoined: 'Joined your class'
   },
   hi: {
     home: 'होम', explore: 'खोजें', badges: 'बैज', board: 'कक्षा', profile: 'प्रोफ़ाइल', teacher: 'शिक्षक',
@@ -3056,7 +3069,20 @@ const T = {
     cloudWelcome: 'साइन इन हो गया — प्रगति सिंक हो रही है',
     cloudSignedOutMsg: 'साइन आउट हो गया। आपकी प्रगति इस डिवाइस पर सुरक्षित है।',
     cloudHaveAccount: 'मेरा खाता पहले से है', cloudNoAccount: 'मुझे खाता बनाना है',
-    cloudTip: 'सुझाव: प्रोफ़ाइल से साइन इन करें ताकि प्रगति सुरक्षित रहे।'
+    cloudTip: 'सुझाव: प्रोफ़ाइल से साइन इन करें ताकि प्रगति सुरक्षित रहे।',
+    myClasses: 'मेरी कक्षाएँ', createClass: 'कक्षा बनाएँ', className: 'कक्षा का नाम',
+    classNameErr: 'कक्षा को नाम दें', classCreated: 'कक्षा बन गई',
+    classCreateForbidden: 'कक्षा बनाने के लिए शिक्षक खाते से साइन इन करें',
+    noClassesYet: 'अभी कोई कक्षा नहीं',
+    noClassesSub: 'एक कक्षा बनाएँ और उसका कोड साझा करें — जो विद्यार्थी कोड डालेंगे वे यहाँ दिखेंगे।',
+    rosterLoading: 'आपकी कक्षा लोड हो रही है…',
+    rosterUnavailable: 'अभी यह कक्षा लोड नहीं हो सकी।',
+    rosterEmpty: 'अभी कोई नहीं जुड़ा',
+    rosterEmptySub: 'यह कोड अपने विद्यार्थियों को दें:',
+    teacherCloudHint: 'यह नमूना कक्षा है। असली कक्षा बनाने और अपने विद्यार्थी देखने के लिए प्रोफ़ाइल से साइन इन करें।',
+    teacherLive: 'लाइव — आपकी असली कक्षाएँ', principalLive: 'लाइव — आपका स्कूल',
+    teachersLabel: 'शिक्षक', activeThisWeek: 'इस सप्ताह सक्रिय', classGroupLabel: 'कक्षा समूह',
+    classCodeNotFound: 'कोड नहीं मिला — अपने शिक्षक से पूछें', classJoined: 'आपकी कक्षा से जुड़ गए'
   }
 };
 
@@ -4006,8 +4032,12 @@ async function api(path, opts) {
    too, and wiping it here would punish someone for logging out. */
 function forceSignOut(announce) {
   lsDel(TOKEN_KEY); lsDel(USER_KEY); lsDel(QUEUE_KEY);
-  // Classmates' names belong to the signed-in session only.
+  // Classmates' names belong to the signed-in session only. Same for a
+  // teacher's roster and a principal's school numbers: both are other
+  // people's data, and neither may survive the account they came from.
   try { liveBoard = null; } catch {}
+  try { teacherClasses = null; selectedClassCode = ''; classRosters = {}; } catch {}
+  try { schoolStats = null; } catch {}
   clearTimeout(flushTimer);
   if (announce) toast(t('cloudSignedOutMsg'));
   try { if (S.onboarded && currentRoute() === 'profile') render(); } catch {}
@@ -4169,7 +4199,12 @@ function syncCreationDeleted(id) {
   try { api('/journey/creations/' + encodeURIComponent(id), { method: 'DELETE' }).catch(() => {}); } catch {}
 }
 
-async function syncOnboard() {
+/* `skipClassCode` exists for the onboarding path: /journey/onboard stores
+   whatever code it is handed without checking it against a real class, so a
+   student who typed a guess would end up parked in a class that does not
+   exist. Onboarding therefore syncs everything else first and puts the code
+   through the validated class_join event instead. */
+async function syncOnboard(opts) {
   if (!signedIn()) return;
   try {
     const body = {
@@ -4178,11 +4213,69 @@ async function syncOnboard() {
       avatar: S.avatar,
       locale: S.locale
     };
-    if (S.classCode) body.classCode = S.classCode;
+    if (S.classCode && !(opts && opts.skipClassCode)) body.classCode = S.classCode;
     if (S.name) body.name = S.name;
     const out = await api('/journey/onboard', { method: 'POST', body });
     adoptProfile(out && out.data && out.data.profile);
   } catch {}
+}
+
+/* Joining a class, for a signed-in student, is the one place the app waits on
+   the server before believing itself: the code is a shared secret a teacher
+   read out, and a typo used to leave the student sitting in a class that was
+   never real, wondering why the board stayed empty. The server answers with
+   accepted:0 for a code it does not recognise.
+
+   `accepted` is also 0 when the student is already in that class (the server
+   has nothing to change), which is why the returned profile is checked too —
+   re-entering your own code is a no-op, not a failure.
+
+   Returns true only when the student is genuinely in the class afterwards. */
+async function joinClassCloud(code, quiet) {
+  try {
+    const out = await api('/journey/events', {
+      method: 'POST',
+      body: { events: [{ kind: 'class_join', payload: { code } }] }
+    });
+    const d = (out && out.data) || {};
+    const p = d.profile;
+    const inClass = !!(p && typeof p.classCode === 'string'
+      && p.classCode.toLowerCase() === String(code).toLowerCase());
+    if (d.accepted === 0 && !inClass) {
+      toast('🏫 ' + t('classCodeNotFound'));
+      haptic(60);
+      return false;
+    }
+    adoptProfile(p);
+    save();
+    if (!quiet) {
+      if (d.awardedXP > 0) { toast(`+${d.awardedXP} XP · ${t('joinClass')}`); chime([659.25]); }
+      else toast('🏫 ' + t('classJoined'));
+      haptic(18);
+    }
+    return true;
+  } catch {
+    toast('☁️ ' + t('cloudOffline'));
+    return false;
+  }
+}
+
+/* Onboarding variant: the profile sync has to land first (so the server's XP
+   already includes the welcome bonus before class_join adds to it), and a
+   rejected code has to be unwound locally — including the join XP finish()
+   optimistically counted — or the next sync would yank the number down with
+   no explanation. */
+async function verifyOnboardClassCode() {
+  const code = S.classCode;
+  if (!signedIn() || !code) { syncOnboard(); return; }
+  await syncOnboard({ skipClassCode: true });
+  const ok = await joinClassCloud(code, true);
+  if (!ok) {
+    S.classCode = '';
+    S.xp = Math.max(0, S.xp - XP.classJoin);
+    save();
+    try { render(); } catch {}
+  }
 }
 
 /* --------------------------------------------------------------- backfill */
@@ -6926,7 +7019,7 @@ function viewProfile() {
         <span class="chip chip--volt">${S.xp.toLocaleString()} XP</span>
         <span class="chip chip--flame">🔥 ${S.streak}</span>
         <span class="chip chip--sprout">🎖️ ${S.badges.length}</span>
-        ${S.classCode ? `<span class="chip chip--sky">🏫 ${esc(S.classCode)}</span>` : ''}
+        ${S.classCode ? `<span class="chip chip--sky">🏫 ${esc(S.classCode.toUpperCase())}</span>` : ''}
       </div>
     </section>
 
@@ -7008,9 +7101,23 @@ function afterProfile() {
     toast('⬇️ ' + t('download')); haptic();
   };
   const jb = $('#joinBtn');
-  if (jb) jb.onclick = () => {
+  if (jb) jb.onclick = async () => {
     const v = ($('#joinCode').value || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
     if (v.length !== 6) { $('#joinErr').textContent = t('codeErr'); haptic(60); return; }
+    // Signed in: the server decides. A mistyped code used to be accepted
+    // locally and quietly ignored by the backend, leaving a student in a
+    // class chip that pointed at nothing.
+    if (signedIn()) {
+      jb.disabled = true;
+      const before = jb.textContent;
+      jb.textContent = t('cloudWorking');
+      const ok = await joinClassCloud(v, false);
+      jb.disabled = false; jb.textContent = before;
+      if (!ok) { $('#joinErr').textContent = t('classCodeNotFound'); return; }
+      render();
+      return;
+    }
+    // Guest: unchanged — local only, no network, no gate.
     S.classCode = v; save();
     pushEvent('class_join', { code: v });
     gain(XP.classJoin, t('joinClass'));
@@ -7099,63 +7206,331 @@ const ROSTER = [
   { n: 'Rohan Das', a: '🦖', xp: 640, s: 0, seen: '9 days ago' }
 ];
 
+/* Real classes for a signed-in teacher. Everything here degrades to the
+   ROSTER sample above: a teacher who has not signed in, or whose network is
+   down, sees exactly the screen they saw before this existed, because a
+   staffroom demo on school wifi must not be able to fail. Cached for a
+   minute like the student leaderboard — a roster is not a live feed.
+
+   `classRosters` is keyed by code rather than a single slot so that flicking
+   between two classes does not re-fetch each time. */
+let teacherClasses = null;          // { list, at }
+let teacherClassesLoading = false;
+let classRosters = {};              // code -> { members, at, failed? }
+const classRosterLoading = {};      // code -> true while in flight
+let selectedClassCode = '';
+
+/* The one label the honest sections need: a chip that says these numbers are
+   illustrative. Matches the marker already used on unofficial GSEB rows. */
+function sampleChip() {
+  return `<span class="chip chip--volt" style="font-size:11px">${S.locale === 'hi' ? 'नमूना' : 'sample'}</span>`;
+}
+
+function fetchTeacherClasses(force) {
+  if (!signedIn() || teacherClassesLoading) return;
+  if (!force && teacherClasses && Date.now() - teacherClasses.at < 60e3) return;
+  teacherClassesLoading = true;
+  api('/journey/class').then(p => {
+    const d = p && p.data;
+    const list = d && Array.isArray(d.classes) ? d.classes : [];
+    teacherClasses = { list, at: Date.now() };
+    // Keep the teacher's choice across refreshes; fall back to the newest
+    // class when the selected one is gone (or nothing was selected yet).
+    if (!selectedClassCode || !list.some(c => c.code === selectedClassCode)) {
+      selectedClassCode = list.length ? list[0].code : '';
+    }
+    if (currentRoute() === 'teacher') render();
+  }).catch(() => {}).finally(() => { teacherClassesLoading = false; });
+}
+
+function fetchClassRoster(code) {
+  if (!signedIn() || !code || classRosterLoading[code]) return;
+  const hit = classRosters[code];
+  if (hit && Date.now() - hit.at < 60e3) return;
+  classRosterLoading[code] = true;
+  api('/journey/class/' + encodeURIComponent(code) + '/roster').then(p => {
+    const d = p && p.data;
+    classRosters[code] = Array.isArray(d && d.members)
+      ? { members: d.members, at: Date.now() }
+      : { members: [], at: Date.now(), failed: true };
+    if (currentRoute() === 'teacher') render();
+  }).catch(() => {
+    // Cached as a failure on purpose: without a timestamp here every repaint
+    // would fire the same doomed request again.
+    classRosters[code] = { members: [], at: Date.now(), failed: true };
+    if (currentRoute() === 'teacher') render();
+  }).finally(() => { delete classRosterLoading[code]; });
+}
+
+function teacherLiveClasses() {
+  return signedIn() && teacherClasses ? teacherClasses.list : null;
+}
+
+function teacherSelectedClass() {
+  const list = teacherLiveClasses();
+  if (!list || !list.length) return null;
+  return list.find(c => c.code === selectedClassCode) || list[0];
+}
+
+/* Card listing the teacher's own classes. Only ever rendered signed in. */
+function teacherClassesCard() {
+  const list = teacherLiveClasses();
+  const sel = teacherSelectedClass();
+  const head = `<div class="sec-head" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+      <h2 style="flex:1">${esc(t('myClasses'))}</h2>
+      ${list && list.length ? `<button class="btn btn--ghost" style="min-height:38px;padding:8px 16px;font-size:13.5px" id="newClass">＋ ${esc(t('createClass'))}</button>` : ''}
+    </div>`;
+
+  if (!list) {
+    return `<section class="sec reveal">${head}
+      <div class="card"><p class="muted" style="font-weight:700;font-size:14px">${esc(t('rosterLoading'))}</p></div>
+    </section>`;
+  }
+
+  if (!list.length) {
+    return `<section class="sec reveal">${head}
+      <div class="card">
+        <div class="empty-state">
+          <div class="empty-state__emoji">🏫</div>
+          <p class="empty-state__title">${esc(t('noClassesYet'))}</p>
+          <p class="empty-state__sub">${esc(t('noClassesSub'))}</p>
+        </div>
+        <button class="btn btn--primary btn--block" id="newClass">＋ ${esc(t('createClass'))}</button>
+      </div>
+    </section>`;
+  }
+
+  return `<section class="sec reveal">${head}
+    <div class="card" style="padding:8px;display:flex;flex-direction:column;gap:8px">
+      ${list.map(c => {
+        const on = sel && c.code === sel.code;
+        const up = String(c.code).toUpperCase();
+        return `<div style="display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid ${on ? 'var(--violet)' : 'var(--border)'};border-radius:var(--r);background:var(--surface-2)">
+          <button data-cls="${esc(c.code)}" style="flex:1;min-width:0;text-align:left;display:flex;flex-direction:column;gap:3px" aria-pressed="${on ? 'true' : 'false'}">
+            <span style="font-weight:800;font-size:15px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(c.name)}</span>
+            <span class="muted" style="font-weight:700;font-size:13px">
+              <span class="mono">${esc(up)}</span> · ${c.members} ${esc(t('students'))}
+            </span>
+          </button>
+          <button class="icon-btn" data-copy-cls="${esc(up)}" aria-label="${esc(t('copyCode'))}">📋</button>
+        </div>`;
+      }).join('')}
+    </div>
+  </section>`;
+}
+
+/* Name + age band, nothing else: a class code is generated by the server, so
+   there is nothing for the teacher to invent or mistype here. */
+function openCreateClassSheet() {
+  let grp = S.classGroup || 'middle';
+  sheet(`
+    <h2 style="font-size:21px;margin-bottom:6px">🏫 ${esc(t('createClass'))}</h2>
+    <div class="field">
+      <label for="clsName">${esc(t('className'))}</label>
+      <input class="input" id="clsName" maxlength="60" autocomplete="off"/>
+      <p class="field__err" id="clsErr"></p>
+    </div>
+    <p class="muted" style="font-weight:800;font-size:12.5px;letter-spacing:.6px;text-transform:uppercase;margin-bottom:8px">${esc(t('classGroupLabel'))}</p>
+    <div class="segment" style="margin-bottom:16px">
+      ${Object.keys(CLASS_GROUPS).map(k => `<button class="${k === grp ? 'on' : ''}" data-grp-pick="${k}">${CLASS_GROUPS[k].emoji} ${esc(L(CLASS_GROUPS[k].label))}</button>`).join('')}
+    </div>
+    <button class="btn btn--primary btn--block" id="clsGo">${esc(t('createClass'))}</button>
+  `, (node, close) => {
+    const nameEl = node.querySelector('#clsName');
+    const errEl = node.querySelector('#clsErr');
+    const goBtn = node.querySelector('#clsGo');
+    nameEl.focus();
+
+    node.querySelectorAll('[data-grp-pick]').forEach(b => b.onclick = () => {
+      grp = b.dataset.grpPick;
+      node.querySelectorAll('[data-grp-pick]').forEach(x => x.classList.toggle('on', x === b));
+      haptic();
+    });
+
+    let busy = false;
+    goBtn.onclick = async () => {
+      if (busy) return;
+      const name = (nameEl.value || '').trim();
+      if (!name) { errEl.textContent = t('classNameErr'); haptic(60); return; }
+      busy = true; errEl.textContent = '';
+      goBtn.disabled = true; goBtn.textContent = t('cloudWorking');
+      try {
+        const out = await api('/journey/class', { method: 'POST', body: { name, classGroup: grp } });
+        const cls = out && out.data && out.data.class;
+        close();
+        if (cls && cls.code) {
+          selectedClassCode = cls.code;
+          toast('🏫 ' + t('classCreated') + ' · ' + String(cls.code).toUpperCase());
+          haptic(18); chime([659.25]);
+        }
+        fetchTeacherClasses(true);
+        render();
+      } catch (err) {
+        busy = false;
+        goBtn.disabled = false; goBtn.textContent = t('createClass');
+        // 403 is the only failure a teacher can act on: the account they are
+        // signed in with is registered as a student.
+        errEl.textContent = (err && (err.status === 403 || err.code === 'FORBIDDEN'))
+          ? t('classCreateForbidden') : t('cloudOffline');
+        haptic(60);
+      }
+    };
+  });
+}
+
+function teacherRosterRows(members) {
+  return members.map(m => {
+    const lv = typeof m.level === 'number' ? m.level : levelForXp(m.xp || 0);
+    const bs = xpForLevel(lv), be = xpForLevel(lv + 1);
+    const pct = Math.max(0, Math.min(100, Math.round((((m.xp || 0) - bs) / Math.max(1, be - bs)) * 100)));
+    return `<tr>
+      <td><span class="tbl__name">${esc(avatarEmoji(m.avatar))} ${esc(m.name || 'Student')}</span></td>
+      <td class="mono">${lv}</td>
+      <td>${m.streak > 0 ? `🔥 ${m.streak}` : `<span class="muted">—</span>`}</td>
+      <td style="min-width:120px"><span class="bar bar--thin"><span class="bar__fill" style="width:${pct}%"></span></span></td>
+      <td class="muted" style="white-space:nowrap">${m.lastActive ? esc(timeAgo(m.lastActive)) : '—'}</td>
+    </tr>`;
+  }).join('');
+}
+
 function viewTeacher() {
-  const avg = Math.round(ROSTER.reduce((a, s) => a + levelForXp(s.xp), 0) / ROSTER.length);
-  const active = ROSTER.filter(s => s.seen === 'Today').length;
-  const code = S.classCode || 'VD7K2M';
+  const sel = teacherSelectedClass();
+  const roster = sel ? classRosters[sel.code] : null;
+  const live = roster && !roster.failed ? roster.members : null;
   const myUpskill = UPSKILL_MODULES.filter(m => S.teacherModulesDone.includes(m.key)).length;
 
-  return `<div class="view">
-    <div class="demo-note">🧪 ${esc(t('demoNote'))}</div>
+  // Headline numbers follow whatever the table below is showing, so the two
+  // can never disagree — including in the gap between picking a real class
+  // and its roster arriving, where the sample numbers would otherwise sit
+  // above a real class code and read as that class's figures. Server rosters
+  // carry a real last-active timestamp; the sample list only has a word.
+  const noClasses = signedIn() && !!teacherClasses && !teacherClasses.list.length;
+  const pending = !!sel && !live;
+  const dayStart = new Date(); dayStart.setHours(0, 0, 0, 0);
+  const memberLevel = m => (m.level != null ? m.level : levelForXp(m.xp || 0));
+  const count = noClasses ? 0 : live ? live.length : pending ? sel.members : ROSTER.length;
+  const avg = noClasses ? 0 : live
+    ? (live.length ? Math.round(live.reduce((a, m) => a + memberLevel(m), 0) / live.length) : 0)
+    : pending ? '—' : Math.round(ROSTER.reduce((a, s) => a + levelForXp(s.xp), 0) / ROSTER.length);
+  const active = noClasses ? 0 : live
+    ? live.filter(m => m.lastActive && m.lastActive >= dayStart.getTime()).length
+    : pending ? '—' : ROSTER.filter(s => s.seen === 'Today').length;
 
-    <section class="card codebox reveal">
-      <p class="codebox__label">${esc(t('classCodeLabel'))}</p>
+  const code = sel ? String(sel.code).toUpperCase() : (S.classCode || 'VD7K2M').toUpperCase();
+
+  return `<div class="view">
+    ${signedIn()
+      ? `<p class="chip chip--flame" style="margin-bottom:14px">● ${esc(t('teacherLive'))}</p>`
+      : `<div class="demo-note">🧪 ${esc(t('demoNote'))}</div>`}
+
+    ${signedIn() ? teacherClassesCard() : ''}
+
+    ${noClasses ? '' : `<section class="card codebox reveal">
+      <p class="codebox__label">${esc(sel ? sel.name : t('classCodeLabel'))}</p>
       <p class="codebox__code">${esc(code)}</p>
       <p style="opacity:.75;font-size:14px;font-weight:600">${esc(t('shareCode'))}</p>
       <button class="btn btn--primary" style="margin-top:14px" id="copyCode">📋 ${esc(t('copyCode'))}</button>
-    </section>
+    </section>`}
 
     <section class="sec stats stagger">
-      <div class="card stat" style="--i:0"><div class="stat__k">${ROSTER.length}</div><div class="stat__l">${esc(t('students'))}</div></div>
+      <div class="card stat" style="--i:0"><div class="stat__k">${count}</div><div class="stat__l">${esc(t('students'))}</div></div>
       <div class="card stat" style="--i:1"><div class="stat__k">${avg}</div><div class="stat__l">${esc(t('avgLevel'))}</div></div>
       <div class="card stat" style="--i:2"><div class="stat__k">${active}</div><div class="stat__l">${esc(t('activeToday'))}</div></div>
       <div class="card stat" style="--i:3"><div class="stat__k">${myUpskill}/${UPSKILL_MODULES.length}</div><div class="stat__l">${esc(t('modulesComplete'))}</div></div>
     </section>
 
     <section class="sec reveal">
-      <div class="sec-head"><h2>${esc(t('students'))}</h2></div>
+      <div class="sec-head" style="display:flex;align-items:center;gap:10px">
+        <h2 style="flex:1">${esc(t('students'))}</h2>
+        ${(!live && !noClasses && !pending) ? sampleChip() : ''}
+      </div>
       <div class="card" style="padding:6px">
-        <div class="tbl__scroll"><table class="tbl">
-          <thead><tr>
-            <th>${esc(t('student'))}</th><th>${esc(t('level'))}</th><th>${esc(t('streak'))}</th>
-            <th>${esc(t('progress'))}</th><th>${esc(t('lastSeen'))}</th>
-          </tr></thead>
-          <tbody>
-            ${ROSTER.map(s => {
-              const lv = levelForXp(s.xp);
-              const bs = xpForLevel(lv), be = xpForLevel(lv + 1);
-              const pct = Math.round(((s.xp - bs) / (be - bs)) * 100);
-              return `<tr>
-                <td><span class="tbl__name">${s.a} ${esc(s.n)}</span></td>
-                <td class="mono">${lv}</td>
-                <td>${s.s > 0 ? `🔥 ${s.s}` : `<span class="muted">—</span>`}</td>
-                <td style="min-width:120px"><span class="bar bar--thin"><span class="bar__fill" style="width:${pct}%"></span></span></td>
-                <td class="muted" style="white-space:nowrap">${esc(s.seen)}</td>
-              </tr>`;
-            }).join('')}
-          </tbody>
-        </table></div>
+        ${teacherRosterBody(sel, roster, live)}
       </div>
     </section>
+
+    ${signedIn() ? '' : `<p class="muted" style="font-weight:700;font-size:13.5px;line-height:1.5;margin-top:14px">☁️ ${esc(t('teacherCloudHint'))}</p>`}
   </div>`;
 }
 
+/* Split out because the roster has four honest states — no class yet, still
+   loading, loaded but empty, loaded with people — and burying four branches
+   inside one template literal is how they end up silently wrong. */
+function teacherRosterBody(sel, roster, live) {
+  if (signedIn() && !sel && teacherClasses) {
+    // Signed in with no classes: the sample table would be a lie, and the
+    // classes card above already carries the call to action.
+    return `<div class="empty-state">
+      <div class="empty-state__emoji">🏫</div>
+      <p class="empty-state__title">${esc(t('noClassesYet'))}</p>
+      <p class="empty-state__sub">${esc(t('noClassesSub'))}</p>
+    </div>`;
+  }
+  if (sel && !roster) {
+    return `<p class="muted" style="font-weight:700;font-size:14px;padding:14px">${esc(t('rosterLoading'))}</p>`;
+  }
+  if (sel && roster && roster.failed) {
+    return `<p class="muted" style="font-weight:700;font-size:14px;padding:14px">${esc(t('rosterUnavailable'))}</p>`;
+  }
+  if (live && !live.length) {
+    return `<div class="empty-state">
+      <div class="empty-state__emoji">📣</div>
+      <p class="empty-state__title">${esc(t('rosterEmpty'))}</p>
+      <p class="empty-state__sub">${esc(t('rosterEmptySub'))}</p>
+      <p class="mono" style="font-size:26px;font-weight:700;letter-spacing:6px;margin-top:10px">${esc(String(sel.code).toUpperCase())}</p>
+    </div>`;
+  }
+
+  const rows = live
+    ? teacherRosterRows(live)
+    : ROSTER.map(s => {
+        const lv = levelForXp(s.xp);
+        const bs = xpForLevel(lv), be = xpForLevel(lv + 1);
+        const pct = Math.round(((s.xp - bs) / (be - bs)) * 100);
+        return `<tr>
+          <td><span class="tbl__name">${s.a} ${esc(s.n)}</span></td>
+          <td class="mono">${lv}</td>
+          <td>${s.s > 0 ? `🔥 ${s.s}` : `<span class="muted">—</span>`}</td>
+          <td style="min-width:120px"><span class="bar bar--thin"><span class="bar__fill" style="width:${pct}%"></span></span></td>
+          <td class="muted" style="white-space:nowrap">${esc(s.seen)}</td>
+        </tr>`;
+      }).join('');
+
+  return `<div class="tbl__scroll"><table class="tbl">
+    <thead><tr>
+      <th>${esc(t('student'))}</th><th>${esc(t('level'))}</th><th>${esc(t('streak'))}</th>
+      <th>${esc(t('progress'))}</th><th>${esc(t('lastSeen'))}</th>
+    </tr></thead>
+    <tbody>${rows}</tbody>
+  </table></div>`;
+}
+
 function afterTeacher() {
+  const sel = teacherSelectedClass();
   const cc = $('#copyCode');
   if (cc) cc.onclick = () => {
-    try { navigator.clipboard.writeText(S.classCode || 'VD7K2M'); } catch {}
+    const code = (sel ? sel.code : (S.classCode || 'VD7K2M')).toUpperCase();
+    try { navigator.clipboard.writeText(code); } catch {}
     toast(t('codeCopied')); haptic();
   };
+
+  document.querySelectorAll('[data-copy-cls]').forEach(b => b.onclick = () => {
+    try { navigator.clipboard.writeText(b.dataset.copyCls); } catch {}
+    toast(t('codeCopied')); haptic();
+  });
+
+  document.querySelectorAll('[data-cls]').forEach(b => b.onclick = () => {
+    if (selectedClassCode === b.dataset.cls) return;
+    selectedClassCode = b.dataset.cls;
+    haptic();
+    render();
+  });
+
+  const nc = $('#newClass');
+  if (nc) nc.onclick = () => { haptic(8); openCreateClassSheet(); };
+
+  fetchTeacherClasses(false);
+  if (sel) fetchClassRoster(sel.code);
 }
 
 /* ===========================================================================
@@ -7437,40 +7812,95 @@ function afterUpskill() {
    in this role, matching "Principal should not need to manage content."
    =========================================================================== */
 
+/* School-wide numbers for a signed-in principal. Same rules as the teacher
+   roster: cached for a minute, never awaited by a render, and a 403 (an
+   account that is not registered as a principal) or a dead network leaves
+   the illustrative SCHOOL_DATA screen exactly as it was. */
+let schoolStats = null;          // { data, at }
+let schoolStatsLoading = false;
+
+function fetchSchoolStats() {
+  if (!signedIn() || schoolStatsLoading) return;
+  if (schoolStats && Date.now() - schoolStats.at < 60e3) return;
+  schoolStatsLoading = true;
+  api('/journey/school').then(p => {
+    const d = p && p.data;
+    if (d && typeof d.students === 'number') {
+      schoolStats = { data: d, at: Date.now() };
+      if (currentRoute() === 'principal') render();
+    }
+  }).catch(() => {}).finally(() => { schoolStatsLoading = false; });
+}
+
 function viewPrincipal() {
+  const sv = signedIn() && schoolStats ? schoolStats.data : null;
+  const liveClasses = sv && Array.isArray(sv.classes) ? sv.classes : null;
+
   const totalStudents = SCHOOL_DATA.classes.reduce((a,c)=>a+c.students,0);
   const totalActive = SCHOOL_DATA.classes.reduce((a,c)=>a+c.active,0);
   const avgXp = Math.round(SCHOOL_DATA.classes.reduce((a,c)=>a+c.avgXp,0)/SCHOOL_DATA.classes.length);
   const topClass = [...SCHOOL_DATA.classes].sort((a,b)=>b.avgXp-a.avgXp)[0];
   const openFlags = FLAGS.length - Object.keys(loadFlagReviewState()).length;
+  // Server classes have no teacher name and no per-class XP average, so the
+  // live banner leans on level and weekly activity instead of inventing one.
+  const liveTop = liveClasses && liveClasses.length
+    ? [...liveClasses].sort((a,b)=>b.avgLevel-a.avgLevel)[0] : null;
 
   return `<div class="view">
-    <div class="demo-note">🧪 ${esc(t('demoNote'))}</div>
+    ${sv
+      ? `<p class="chip chip--flame" style="margin-bottom:14px">● ${esc(t('principalLive'))}</p>`
+      : `<div class="demo-note">🧪 ${esc(t('demoNote'))}</div>`}
     <div class="sec-head"><h2>${esc(t('schoolStats'))}</h2></div>
-    <p style="font-family:var(--font-display);font-weight:700;font-size:17px;color:var(--dim);margin-bottom:16px">${esc(SCHOOL_DATA.name)}</p>
+    <p style="font-family:var(--font-display);font-weight:700;font-size:17px;color:var(--dim);margin-bottom:16px">${esc(SCHOOL_DATA.name)}${sv ? ' ' + sampleChip() : ''}</p>
 
     <div class="stats stagger" style="margin-bottom:24px">
-      <div class="card stat" style="--i:0"><div class="stat__k">${totalStudents}</div><div class="stat__l">${esc(t('students'))}</div></div>
-      <div class="card stat" style="--i:1"><div class="stat__k">${totalActive}</div><div class="stat__l">${esc(t('activeToday'))}</div></div>
-      <div class="card stat" style="--i:2"><div class="stat__k">${avgXp.toLocaleString()}</div><div class="stat__l">${esc(t('avgXp'))}</div></div>
-      <div class="card stat" style="--i:3"><div class="stat__k">${openFlags}</div><div class="stat__l">${esc(t('flags'))}</div></div>
+      <div class="card stat" style="--i:0"><div class="stat__k">${sv ? sv.students : totalStudents}</div><div class="stat__l">${esc(t('students'))}</div></div>
+      <div class="card stat" style="--i:1"><div class="stat__k">${sv ? sv.activeToday : totalActive}</div><div class="stat__l">${esc(t('activeToday'))}</div></div>
+      ${sv
+        ? `<div class="card stat" style="--i:2"><div class="stat__k">${sv.avgLevel}</div><div class="stat__l">${esc(t('avgLevel'))}</div></div>
+           <div class="card stat" style="--i:3"><div class="stat__k">${sv.teachers}</div><div class="stat__l">${esc(t('teachersLabel'))}</div></div>`
+        : `<div class="card stat" style="--i:2"><div class="stat__k">${avgXp.toLocaleString()}</div><div class="stat__l">${esc(t('avgXp'))}</div></div>
+           <div class="card stat" style="--i:3"><div class="stat__k">${openFlags}</div><div class="stat__l">${esc(t('flags'))}</div></div>`}
     </div>
 
-    <div class="card reveal" style="background:linear-gradient(135deg,var(--ink),var(--violet));color:#fff;margin-bottom:20px;padding:20px">
+    ${sv && !liveTop ? '' : `<div class="card reveal" style="background:linear-gradient(135deg,var(--ink),var(--violet));color:#fff;margin-bottom:20px;padding:20px">
       <p style="font-size:12px;font-weight:900;letter-spacing:1.4px;text-transform:uppercase;color:var(--volt)">🏆 ${esc(t('topClass'))}</p>
-      <h3 style="font-size:24px;color:#fff;margin-top:4px">${esc(topClass.name)}</h3>
-      <p style="opacity:.8;font-weight:700">${esc(topClass.teacher)} · ${topClass.avgXp.toLocaleString()} avg XP · ${topClass.active}/${topClass.students} active today</p>
-    </div>
+      <h3 style="font-size:24px;color:#fff;margin-top:4px">${esc(liveTop ? liveTop.name : topClass.name)}</h3>
+      <p style="opacity:.8;font-weight:700">${liveTop
+        ? `${esc(t('avgLevel'))} ${liveTop.avgLevel} · ${liveTop.activeThisWeek}/${liveTop.members} ${esc(t('activeThisWeek').toLowerCase())}`
+        : `${esc(topClass.teacher)} · ${topClass.avgXp.toLocaleString()} avg XP · ${topClass.active}/${topClass.students} active today`}</p>
+    </div>`}
 
     <div class="sec-head"><h2>${esc(t('allClasses'))}</h2></div>
     <div class="card reveal" style="padding:6px;margin-bottom:22px">
-      <div class="tbl__scroll"><table class="tbl">
+      ${liveClasses && !liveClasses.length
+        ? `<div class="empty-state">
+             <div class="empty-state__emoji">🏫</div>
+             <p class="empty-state__title">${esc(t('noClassesYet'))}</p>
+             <p class="empty-state__sub">${esc(t('noClassesSub'))}</p>
+           </div>`
+        : `<div class="tbl__scroll"><table class="tbl">
         <thead><tr>
-          <th>${esc(t('allClasses'))}</th><th>Teacher</th><th>${esc(t('students'))}</th>
-          <th>${esc(t('avgXp'))}</th><th>${esc(t('activeToday'))}</th>
+          <th>${esc(t('allClasses'))}</th><th>${liveClasses ? esc(t('classGroupLabel')) : 'Teacher'}</th><th>${esc(t('students'))}</th>
+          <th>${liveClasses ? esc(t('avgLevel')) : esc(t('avgXp'))}</th><th>${liveClasses ? esc(t('activeThisWeek')) : esc(t('activeToday'))}</th>
         </tr></thead>
         <tbody>
-          ${SCHOOL_DATA.classes.map((c,i) => `<tr style="animation:cardIn .4s var(--ease) both;animation-delay:${i*50}ms">
+          ${liveClasses
+            ? liveClasses.map((c,i) => {
+                const pct = c.members ? Math.round((c.activeThisWeek / c.members) * 100) : 0;
+                const grp = CLASS_GROUPS[c.classGroup];
+                return `<tr style="animation:cardIn .4s var(--ease) both;animation-delay:${i*50}ms">
+                  <td><span style="font-weight:700">${esc(c.name)}</span></td>
+                  <td class="muted">${esc(grp ? L(grp.label) : c.classGroup)}</td>
+                  <td class="mono">${c.members}</td>
+                  <td class="mono" style="color:var(--volt-deep);font-weight:700">${c.avgLevel}</td>
+                  <td>
+                    <span class="bar bar--thin" style="min-width:80px;display:inline-block"><span class="bar__fill" style="width:${pct}%"></span></span>
+                    <span class="muted mono" style="font-size:13px;margin-left:6px">${c.activeThisWeek}/${c.members}</span>
+                  </td>
+                </tr>`;
+              }).join('')
+            : SCHOOL_DATA.classes.map((c,i) => `<tr style="animation:cardIn .4s var(--ease) both;animation-delay:${i*50}ms">
             <td><span style="font-weight:700">${esc(c.name)}</span></td>
             <td class="muted">${esc(c.teacher)}</td>
             <td class="mono">${c.students}</td>
@@ -7481,10 +7911,14 @@ function viewPrincipal() {
             </td>
           </tr>`).join('')}
         </tbody>
-      </table></div>
+      </table></div>`}
     </div>
 
-    <div class="sec-head"><h2>${esc(t('staffProgress'))}</h2><p>${esc(t('staffProgressSub'))}</p></div>
+    <div class="sec-head">
+      <h2 style="flex:1">${esc(t('staffProgress'))}</h2>${sv ? sampleChip() : ''}
+      <p>${esc(t('staffProgressSub'))}</p>
+    </div>
+    ${sv && sv.upskill ? `<p class="muted" style="font-weight:700;font-size:13.5px;margin:-6px 0 12px">☁️ ${sv.upskill.modulesDone}/${sv.upskill.modulesTotal} ${esc(t('modulesComplete'))} · ${sv.upskill.teachers} ${esc(t('teachersLabel'))}</p>` : ''}
     <div class="card reveal" style="padding:6px;margin-bottom:22px">
       <div class="tbl__scroll"><table class="tbl">
         <thead><tr><th>Teacher</th><th>${esc(t('upskillProgress'))}</th><th>Magic tool uses</th></tr></thead>
@@ -7523,7 +7957,9 @@ function afterPrincipal() {
      handler. The old "send parent reports" button was removed: it only
      simulated sending, and now that real printable parent summaries exist,
      a button that pretends to email them would be strictly worse than one
-     that opens the real thing. */
+     that opens the real thing. The one job left is asking the server for
+     real numbers; the mock is already on screen by the time it answers. */
+  fetchSchoolStats();
 }
 
 /* ---- Journey view: per-class term trend (Section 5's "journey ... over the
@@ -8298,7 +8734,10 @@ function afterOnboarding() {
     save();
     // Already signed in (rare — signing in happens from Profile, after
     // onboarding): tell the server who this is. Guests: both are no-ops.
-    syncOnboard();
+    // A class code typed here goes through the validated join path rather
+    // than straight into the onboard payload, which does not check it.
+    if (signedIn() && S.classCode) verifyOnboardClassCode();
+    else syncOnboard();
     pushEvent('avatar_set', { avatar: S.avatar });
     location.hash = '#/' + (S.role === 'teacher' ? 'teacher' : S.role === 'principal' ? 'principal' : S.role === 'parent' ? 'parent' : 'home');
     render();

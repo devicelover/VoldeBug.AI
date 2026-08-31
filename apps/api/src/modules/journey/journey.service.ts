@@ -363,6 +363,17 @@ export async function onboardProfile(
   const now = new Date();
   await ensureProfile(userId);
 
+  // classCode goes through the same existence check as class_join events —
+  // onboard must not be a side door for planting arbitrary codes.
+  let classCode = input.classCode?.toLowerCase();
+  if (classCode) {
+    const cls = await prisma.journeyClass.findFirst({
+      where: { code: classCode, deletedAt: null },
+      select: { id: true },
+    });
+    if (!cls) classCode = undefined;
+  }
+
   return prisma.$transaction(async (tx) => {
     const profile = await lockProfile(tx, userId);
     if (input.name) {
@@ -384,7 +395,7 @@ export async function onboardProfile(
         ...(input.classGroup ? { classGroup: input.classGroup } : {}),
         ...(input.avatar ? { avatar: input.avatar } : {}),
         ...(input.locale ? { locale: input.locale } : {}),
-        ...(input.classCode ? { classCode: input.classCode } : {}),
+        ...(classCode ? { classCode } : {}),
         ...(first ? { onboardedAt: now } : {}),
         ...(xp > 0 ? { xp: { increment: xp } } : {}),
         lastActiveDate: now,
