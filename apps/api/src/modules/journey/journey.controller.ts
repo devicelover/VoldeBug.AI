@@ -1,9 +1,13 @@
 import type { NextFunction, Request, Response } from "express";
 import type { ZodError } from "zod";
 import { apiSuccess, apiError } from "../../utils/api.js";
-import { creationSchema, eventsBodySchema, onboardSchema } from "./journey.schema.js";
+import { classCodeParamSchema, classCreateSchema, creationSchema, eventsBodySchema, onboardSchema } from "./journey.schema.js";
 import {
   addCreation,
+  createJourneyClass,
+  getJourneyRoster,
+  getSchoolStats,
+  listJourneyClasses,
   deleteCreation,
   getLeaderboard,
   getOrCreateProfile,
@@ -101,6 +105,63 @@ export async function handleTimeline(req: Request, res: Response, next: NextFunc
   try {
     const timeline = await getTimeline(req.userId!);
     return apiSuccess(res, { timeline });
+  } catch (err) {
+    return next(err);
+  }
+}
+
+export async function handleCreateClass(req: Request, res: Response, next: NextFunction) {
+  const parsed = classCreateSchema.safeParse(req.body);
+  if (!parsed.success) return validationError(res, parsed.error);
+  try {
+    const cls = await createJourneyClass(req.userId!, parsed.data);
+    if (!cls) {
+      return apiError(res, {
+        code: "FORBIDDEN",
+        message: "Only teachers can create classes",
+        status: 403,
+      });
+    }
+    return apiSuccess(res, { class: cls }, 201);
+  } catch (err) {
+    return next(err);
+  }
+}
+
+export async function handleListClasses(req: Request, res: Response, next: NextFunction) {
+  try {
+    const classes = await listJourneyClasses(req.userId!);
+    return apiSuccess(res, { classes });
+  } catch (err) {
+    return next(err);
+  }
+}
+
+export async function handleRoster(req: Request, res: Response, next: NextFunction) {
+  const parsed = classCodeParamSchema.safeParse(req.params.code);
+  if (!parsed.success) return validationError(res, parsed.error);
+  try {
+    const roster = await getJourneyRoster(req.userId!, parsed.data);
+    if (!roster) {
+      return apiError(res, { code: "NOT_FOUND", message: "Class not found", status: 404 });
+    }
+    return apiSuccess(res, roster);
+  } catch (err) {
+    return next(err);
+  }
+}
+
+export async function handleSchoolStats(req: Request, res: Response, next: NextFunction) {
+  try {
+    const stats = await getSchoolStats(req.userId!);
+    if (!stats) {
+      return apiError(res, {
+        code: "FORBIDDEN",
+        message: "Only principals can view school stats",
+        status: 403,
+      });
+    }
+    return apiSuccess(res, stats);
   } catch (err) {
     return next(err);
   }

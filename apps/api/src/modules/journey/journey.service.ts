@@ -116,11 +116,16 @@ interface Mutation {
 // Duplicate or out-of-rule events return null or award 0 XP but never
 // error — the SPA replays freely (offline queue, login backfill), so
 // idempotency is the contract.
+interface EventCtx {
+  promptBuilt: number;
+  validCodes: Set<string>;
+}
+
 function applyEvent(
   draft: JourneyProfile,
   ev: JourneyEventInput,
   now: Date,
-  dailyCounts: { promptBuilt: number },
+  ctx: EventCtx,
 ): Mutation | null {
   switch (ev.kind) {
     case "tool_explored": {
@@ -170,12 +175,12 @@ function applyEvent(
     case "prompt_built": {
       const { tplKey } = ev.payload;
       const isNewTemplate = !draft.promptTemplatesUsed.includes(tplKey);
-      const capped = dailyCounts.promptBuilt >= PROMPT_BUILT_DAILY_CAP;
+      const capped = ctx.promptBuilt >= PROMPT_BUILT_DAILY_CAP;
       if (!isNewTemplate && capped) return null;
       if (isNewTemplate) {
         draft.promptTemplatesUsed = [...draft.promptTemplatesUsed, tplKey];
       }
-      if (!capped) dailyCounts.promptBuilt += 1;
+      if (!capped) ctx.promptBuilt += 1;
       const xp = capped ? 0 : XP_TABLE.promptBuilt;
       return {
         xp,
@@ -198,9 +203,13 @@ function applyEvent(
       };
     }
     case "class_join": {
-      if (draft.classCode === ev.payload.code) return null;
+      const code = ev.payload.code.toLowerCase();
+      // Codes must belong to a real class — a guessed string may no longer
+      // pull other students' names onto a leaderboard.
+      if (!ctx.validCodes.has(code)) return null;
+      if (draft.classCode === code) return null;
       const firstJoin = draft.classCode.length === 0;
-      draft.classCode = ev.payload.code;
+      draft.classCode = code;
       return { xp: firstJoin ? XP_TABLE.classJoin : 0 };
     }
     case "avatar_set": {
@@ -301,17 +310,32 @@ export async function processEvents(
   const now = new Date();
   await ensureProfile(userId);
 
+  const joinCodes = events
+    .filter((e) => e.kind === "class_join")
+    .map((e) => (e as { payload: { code: string } }).payload.code.toLowerCase());
+  const validCodes = new Set<string>(
+    joinCodes.length
+      ? (
+          await prisma.journeyClass.findMany({
+            where: { code: { in: joinCodes }, deletedAt: null },
+            select: { code: true },
+          })
+        ).map((c) => c.code)
+      : [],
+  );
+
   return prisma.$transaction(async (tx) => {
     const profile = await lockProfile(tx, userId);
     const draft: JourneyProfile = { ...profile };
 
-    const dailyCounts = {
+    const ctx: EventCtx = {
       promptBuilt: await xpAwardedToday(tx, userId, "prompt", now),
+      validCodes,
     };
 
     const mutations: Mutation[] = [];
     for (const ev of events) {
-      const m = applyEvent(draft, ev, now, dailyCounts);
+      const m = applyEvent(draft, ev, now, ctx);
       if (m) mutations.push(m);
     }
 
@@ -497,4 +521,154 @@ export async function getLeaderboard(userId: string) {
     entries.push({ ...meEntry, rank: better + 1 });
   }
   return { scope: "class" as const, entries };
+}
+
+/* ------------------------------------------------------------ classes */
+
+// Unambiguous alphabet: no 0/o, 1/l/i — codes get read out loud in class.
+const CODE_ALPHABET = "abcdefghjkmnpqrstuvwxyz23456789";
+
+function randomCode(): string {
+  let out = "";
+  for (let i = 0; i < 6; i++) {
+    out += CODE_ALPHABET[Math.floor(Math.random() * CODE_ALPHABET.length)];
+  }
+  return out;
+}
+
+async function requireJourneyRole(userId: string, roles: string[]) {
+  const profile = await ensureProfile(userId);
+  return roles.includes(profile.journeyRole) ? profile : null;
+}
+
+export async function createJourneyClass(
+  userId: string,
+  input: { name: string; classGroup?: string },
+) {
+  const profile = await requireJourneyRole(userId, ["teacher", "principal"]);
+  if (!profile) return null;
+
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const code = randomCode();
+    try {
+      const cls = await prisma.journeyClass.create({
+        data: {
+          code,
+          name: input.name,
+          classGroup: input.classGroup ?? "middle",
+          ownerId: userId,
+        },
+      });
+      return { id: cls.id, code: cls.code, name: cls.name, classGroup: cls.classGroup, members: 0 };
+    } catch (err) {
+      // Unique collision on the code — roll again. Anything else is real.
+      if ((err as { code?: string }).code !== "P2002") throw err;
+    }
+  }
+  throw new Error("Could not allocate a class code");
+}
+
+export async function listJourneyClasses(userId: string) {
+  const classes = await prisma.journeyClass.findMany({
+    where: { ownerId: userId, deletedAt: null },
+    orderBy: { createdAt: "desc" },
+    take: 50,
+  });
+  const counts = await Promise.all(
+    classes.map((c) => prisma.journeyProfile.count({ where: { classCode: c.code } })),
+  );
+  return classes.map((c, i) => ({
+    id: c.id,
+    code: c.code,
+    name: c.name,
+    classGroup: c.classGroup,
+    members: counts[i],
+  }));
+}
+
+// Roster is owner-only. The owner created the code the students typed in,
+// so they see full names and progress; nobody else does.
+export async function getJourneyRoster(userId: string, code: string) {
+  const cls = await prisma.journeyClass.findFirst({
+    where: { code: code.toLowerCase(), deletedAt: null },
+  });
+  if (!cls || cls.ownerId !== userId) return null;
+
+  const members = await prisma.journeyProfile.findMany({
+    where: { classCode: cls.code, userId: { not: userId } },
+    orderBy: { xp: "desc" },
+    take: 200,
+    include: { user: { select: { name: true } } },
+  });
+  return {
+    class: { id: cls.id, code: cls.code, name: cls.name, classGroup: cls.classGroup },
+    members: members.map((m) => ({
+      name: m.user.name ?? "Student",
+      avatar: m.avatar,
+      level: levelForXp(m.xp),
+      xp: m.xp,
+      streak: m.streak,
+      badges: m.badges.length,
+      toolsSeen: m.toolsSeen.length,
+      questsDone: m.questsDone,
+      lastActive: m.lastActiveDate ? m.lastActiveDate.getTime() : null,
+    })),
+  };
+}
+
+// School-wide aggregates for the (self-reported) principal persona. Numbers
+// only — no student names leave this endpoint, because the role carries no
+// verified authority. One deployment == one school by assumption.
+export async function getSchoolStats(userId: string) {
+  const profile = await requireJourneyRole(userId, ["principal"]);
+  if (!profile) return null;
+
+  const now = new Date();
+  const dayStart = startOfTodayUtc(now);
+  const weekStart = new Date(dayStart.getTime() - 6 * 864e5);
+
+  const [students, teachers, activeToday, activeWeek, classes, xpAgg] = await Promise.all([
+    prisma.journeyProfile.count({ where: { journeyRole: "student" } }),
+    prisma.journeyProfile.count({ where: { journeyRole: "teacher" } }),
+    prisma.journeyProfile.count({ where: { lastActiveDate: { gte: dayStart } } }),
+    prisma.journeyProfile.count({ where: { lastActiveDate: { gte: weekStart } } }),
+    prisma.journeyClass.findMany({ where: { deletedAt: null }, take: 50 }),
+    prisma.journeyProfile.aggregate({ _sum: { xp: true }, _avg: { xp: true } }),
+  ]);
+
+  const classRows = await Promise.all(
+    classes.map(async (c) => {
+      const [members, agg, weekActive] = await Promise.all([
+        prisma.journeyProfile.count({ where: { classCode: c.code } }),
+        prisma.journeyProfile.aggregate({ where: { classCode: c.code }, _avg: { xp: true } }),
+        prisma.journeyProfile.count({
+          where: { classCode: c.code, lastActiveDate: { gte: weekStart } },
+        }),
+      ]);
+      return {
+        name: c.name,
+        classGroup: c.classGroup,
+        members,
+        avgLevel: levelForXp(Math.round(agg._avg.xp ?? 0)),
+        activeThisWeek: weekActive,
+      };
+    }),
+  );
+
+  const upskill = await prisma.journeyProfile.findMany({
+    where: { journeyRole: "teacher" },
+    select: { teacherModulesDone: true },
+  });
+  const modulesDone = upskill.reduce((s, t) => s + t.teacherModulesDone.length, 0);
+
+  return {
+    students,
+    teachers,
+    activeToday,
+    activeThisWeek: activeWeek,
+    totalXP: xpAgg._sum.xp ?? 0,
+    avgLevel: levelForXp(Math.round(xpAgg._avg.xp ?? 0)),
+    classes: classRows,
+    upskill: { teachers: upskill.length, modulesDone, modulesTotal: upskill.length * 3 },
+  };
 }

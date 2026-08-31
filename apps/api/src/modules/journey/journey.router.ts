@@ -3,6 +3,10 @@ import rateLimit from "express-rate-limit";
 import { authenticate } from "../../middleware/auth.js";
 import {
   handleAddCreation,
+  handleCreateClass,
+  handleListClasses,
+  handleRoster,
+  handleSchoolStats,
   handleDeleteCreation,
   handleGetMe,
   handleLeaderboard,
@@ -42,6 +46,10 @@ journeyRouter.get("/creations", handleListCreations);
 journeyRouter.post("/creations", handleAddCreation);
 journeyRouter.delete("/creations/:id", handleDeleteCreation);
 journeyRouter.get("/leaderboard", handleLeaderboard);
+journeyRouter.post("/class", handleCreateClass);
+journeyRouter.get("/class", handleListClasses);
+journeyRouter.get("/class/:code/roster", handleRoster);
+journeyRouter.get("/school", handleSchoolStats);
 journeyRouter.get("/timeline", handleTimeline);
 
 export { journeyRouter };

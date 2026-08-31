@@ -83,3 +83,10 @@ export const creationSchema = z.object({
   note: z.string().max(1000).optional(),
   emoji: z.string().max(8).optional(),
 });
+
+export const classCreateSchema = z.object({
+  name: z.string().min(1).max(60),
+  classGroup: z.enum(CLASS_GROUPS).optional(),
+});
+
+export const classCodeParamSchema = classCode;

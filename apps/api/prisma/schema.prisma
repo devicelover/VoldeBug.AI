@@ -124,6 +124,7 @@ model User {
   parentalConsent     ParentalConsent?
   authoredLessonPlans LessonPlan[]      @relation("LessonPlanAuthor")
   journeyProfile      JourneyProfile?
+  journeyClasses      JourneyClass[]    @relation("JourneyClassOwner")
   journeyCreations    JourneyCreation[]
   journeyEvents       JourneyEvent[]
   lastActiveAt        DateTime          @default(now())
@@ -680,4 +681,22 @@ model JourneyEvent {
 
   @@index([userId, createdAt(sort: Desc)])
   @@map("journey_events")
+}
+
+// A journey class is a lightweight roster container for the /app SPA:
+// students join by code, the owning "teacher" (self-reported journey role —
+// no old-backend privileges attached) sees progress for members. Kept
+// separate from the assignment-centric Class model on purpose.
+model JourneyClass {
+  id         String    @id @default(cuid())
+  code       String    @unique // 6-char join code, server-generated
+  name       String
+  classGroup String    @default("middle")
+  ownerId    String
+  owner      User      @relation("JourneyClassOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  createdAt  DateTime  @default(now())
+  deletedAt  DateTime?
+
+  @@index([ownerId])
+  @@map("journey_classes")
 }
