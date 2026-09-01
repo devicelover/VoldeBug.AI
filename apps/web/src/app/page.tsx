@@ -94,9 +94,32 @@ export default function LandingPage() {
     <div className="min-h-screen relative overflow-x-hidden">
       {/* Atmospheric background */}
       <div className="fixed inset-0 z-0 pointer-events-none">
-        <div className="absolute -top-40 -right-40 w-[700px] h-[700px] rounded-full bg-accent/8 blur-[160px]" />
-        <div className="absolute top-1/2 -left-40 w-[500px] h-[500px] rounded-full bg-purple-600/6 blur-[140px]" />
-        <div className="absolute -bottom-40 right-1/3 w-[600px] h-[600px] rounded-full bg-info/5 blur-[150px]" />
+        {/* Atmospheric glows drawn as radial gradients rather than blurred
+            circles. A large `blur-[160px]` filter forces the compositor to
+            re-blur the whole surface on every scroll frame, which is the
+            single most expensive thing on the page for a mid-range phone.
+            A radial gradient paints the same soft falloff for free. */}
+        <div
+          className="absolute -top-40 -right-40 w-[700px] h-[700px] rounded-full"
+          style={{
+            background:
+              "radial-gradient(circle, rgba(99,102,241,0.14) 0%, rgba(99,102,241,0.05) 45%, transparent 70%)",
+          }}
+        />
+        <div
+          className="absolute top-1/2 -left-40 w-[500px] h-[500px] rounded-full"
+          style={{
+            background:
+              "radial-gradient(circle, rgba(147,51,234,0.12) 0%, rgba(147,51,234,0.04) 45%, transparent 70%)",
+          }}
+        />
+        <div
+          className="absolute -bottom-40 right-1/3 w-[600px] h-[600px] rounded-full"
+          style={{
+            background:
+              "radial-gradient(circle, rgba(6,182,212,0.10) 0%, rgba(6,182,212,0.03) 45%, transparent 70%)",
+          }}
+        />
         <div
           className="absolute inset-0 opacity-[0.02]"
           style={{
@@ -413,8 +436,20 @@ export default function LandingPage() {
           className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-accent/20 via-accent/10 to-purple-600/10 border border-accent/20 p-10 md:p-14 text-center"
         >
           <div className="absolute inset-0 pointer-events-none">
-            <div className="absolute top-0 right-0 w-80 h-80 rounded-full bg-accent/10 blur-[80px]" />
-            <div className="absolute bottom-0 left-0 w-60 h-60 rounded-full bg-purple-600/10 blur-[80px]" />
+            <div
+              className="absolute top-0 right-0 w-80 h-80 rounded-full"
+              style={{
+                background:
+                  "radial-gradient(circle, rgba(99,102,241,0.18) 0%, transparent 70%)",
+              }}
+            />
+            <div
+              className="absolute bottom-0 left-0 w-60 h-60 rounded-full"
+              style={{
+                background:
+                  "radial-gradient(circle, rgba(147,51,234,0.18) 0%, transparent 70%)",
+              }}
+            />
           </div>
           <div className="relative z-10 space-y-6">
             <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-accent/20 border border-accent/30 mb-2">

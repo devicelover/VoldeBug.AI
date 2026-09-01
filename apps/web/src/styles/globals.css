@@ -367,8 +367,22 @@
     box-shadow: 0 0 8px var(--color-xp-glow);
   }
 
+  /* Pulse the glow by fading a pre-painted overlay in and out. Animating
+     box-shadow directly (as this used to) repaints the element every frame
+     for as long as the bar is near a level-up; opacity is composited. */
   .xp-bar-fill.near-levelup {
-    animation: xpGlow 1.5s ease-in-out infinite;
+    position: relative;
+  }
+
+  .xp-bar-fill.near-levelup::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    box-shadow: 0 0 20px var(--color-xp-glow);
+    opacity: 0;
+    pointer-events: none;
+    animation: xpGlowPulse 1.5s ease-in-out infinite;
   }
 
   /* ── Badge (gamification) ── */
@@ -536,12 +550,12 @@
   }
 }
 
-@keyframes xpGlow {
+@keyframes xpGlowPulse {
   0%, 100% {
-    box-shadow: 0 0 8px var(--color-xp-glow);
+    opacity: 0;
   }
   50% {
-    box-shadow: 0 0 20px var(--color-xp-glow);
+    opacity: 1;
   }
 }
 
@@ -565,14 +579,10 @@
   }
 }
 
-@keyframes trophyGlow {
-  0%, 100% {
-    filter: drop-shadow(0 0 4px rgba(251, 191, 36, 0.3));
-  }
-  50% {
-    filter: drop-shadow(0 0 12px rgba(251, 191, 36, 0.6));
-  }
-}
+/* trophyGlow removed: it animated `filter: drop-shadow`, which repaints
+   every frame, and nothing in the app referenced .animate-trophy-glow.
+   If a trophy pulse is wanted again, fade an overlay's opacity the way
+   .xp-bar-fill.near-levelup::after does. */
 
 /* Animation utility classes */
 .animate-fade-in {
@@ -603,9 +613,6 @@
   animation: float 3s ease-in-out infinite;
 }
 
-.animate-trophy-glow {
-  animation: trophyGlow 2s ease-in-out infinite;
-}
 
 /* Staggered entrance delays */
 .stagger-1 { animation-delay: 50ms; }
@@ -614,3 +621,23 @@
 .stagger-4 { animation-delay: 200ms; }
 .stagger-5 { animation-delay: 250ms; }
 .stagger-6 { animation-delay: 300ms; }
+
+/* Respect the OS "reduce motion" setting (WCAG 2.1 AA, CLAUDE.md §9).
+   Entrance and celebration motion is decorative, so it collapses to a
+   single frame rather than being removed — elements still end up in their
+   final, visible state. Looping animations stop entirely. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  .xp-bar-fill.near-levelup::after {
+    opacity: 0.6;
+    animation: none !important;
+  }
+}
