@@ -24,11 +24,17 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
 
   const { data: session, status } = useSession();
 
+  // Depend on the id string, NOT the session object. useSession() returns a
+  // fresh object on every refetch (periodic, and on window focus), so a
+  // `session` dependency tore down and reopened the socket over and over for
+  // the whole time a user had the app open.
+  const userId = session?.user?.id;
+
   useEffect(() => {
     if (status === "loading") return;
-    
+
     // Connect only when we have a userId to identify the socket with
-    const token = session?.user?.id;
+    const token = userId;
     if (!token) return;
 
     const socketUrl = process.env.NEXT_PUBLIC_SOCKET_URL ?? "http://localhost:4000";
@@ -45,7 +51,7 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
     return () => {
       s.disconnect();
     };
-  }, [session, status]);
+  }, [userId, status]);
 
   return (
     <SocketContext.Provider value={{ socket, connected }}>
