@@ -39,5 +39,22 @@ for name in extras:
     if src_file.exists():
         shutil.copyfile(src_file, DIST / name)
 
+# Fonts are self-hosted (see the comment in index.template.html). The
+# stylesheet lands beside index.html at /app/fonts.css and the woff2 files
+# under /app/fonts/, which is exactly what the @font-face src urls and the
+# service worker's cache-first branch both assume. A missing font file here
+# is invisible in review and obvious on a phone, so the count is printed.
+fonts_src = SPA / 'fonts'
+fonts_css = fonts_src / 'fonts.css'
+woff2 = sorted(fonts_src.glob('*.woff2')) if fonts_src.is_dir() else []
+if fonts_css.exists():
+    shutil.copyfile(fonts_css, DIST / 'fonts.css')
+if woff2:
+    fonts_dist = DIST / 'fonts'
+    fonts_dist.mkdir(parents=True, exist_ok=True)
+    for f in woff2:
+        shutil.copyfile(f, fonts_dist / f.name)
+
 print(f'built {dest}  ({len(out):,} bytes)')
 print('copied ' + ', '.join(extras))
+print(f'copied fonts.css + {len(woff2)} woff2 files')

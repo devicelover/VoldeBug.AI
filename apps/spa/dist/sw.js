@@ -21,12 +21,18 @@
    quietly serves a stale build to every returning student.
    =========================================================================== */
 
-const CACHE_VERSION = 'voldebug-v7';
+const CACHE_VERSION = 'voldebug-v8';
 const SHELL_URL = '/app/';
 
+// fonts.css is precached but the woff2 files it names are not: the full set
+// is ~31 files across three families and two scripts, and precaching all of
+// them would make the install step fail as a unit on a patchy connection.
+// They are cached individually on first use instead (see the fetch handler),
+// which also means a device that never renders Devanagari never downloads it.
 const PRECACHE = [
   '/app/',
   '/app/manifest.json',
+  '/app/fonts.css',
   '/app/icon-192.png',
   '/app/icon-512.png'
 ];
@@ -52,9 +58,9 @@ self.addEventListener('activate', event => {
 self.addEventListener('fetch', event => {
   const req = event.request;
 
-  // Only ever handle same-origin GET requests. Anything else (fonts from
-  // Google, a POST, cross-origin calls) is left completely alone — this
-  // worker has no business deciding what happens to traffic it doesn't own.
+  // Only ever handle same-origin GET requests. Anything else (a POST, any
+  // cross-origin call) is left completely alone — this worker has no
+  // business deciding what happens to traffic it doesn't own.
   if (req.method !== 'GET') return;
 
   let url;
@@ -85,6 +91,25 @@ self.addEventListener('fetch', event => {
           return res;
         })
         .catch(() => caches.match(SHELL_URL))
+    );
+    return;
+  }
+
+  // Fonts: cache-first, and cached on the way past. These are content-hashed
+  // by family/weight/subset and never change in place, so a hit is always
+  // correct — and a student who has loaded the app once should never see the
+  // fallback system font again, connection or not. Only a real 200 is stored;
+  // caching an error page under a .woff2 name would break the font
+  // permanently for that device.
+  if (url.pathname.startsWith('/app/fonts')) {
+    event.respondWith(
+      caches.match(req).then(cached => cached || fetch(req).then(res => {
+        if (res.ok && res.status === 200 && res.type === 'basic') {
+          const copy = res.clone();
+          caches.open(CACHE_VERSION).then(c => c.put(req, copy));
+        }
+        return res;
+      }))
     );
     return;
   }

@@ -4,7 +4,7 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
 <meta name="theme-color" content="#16223B"/>
-<meta name="description" content="Voldebug — learn to use AI tools well. Built for students in classes 6 to 12."/>
+<meta name="description" content="Voldebug — learn to use AI tools well. Built for students from Nursery to Class 12, and for the teachers who guide them."/>
 <meta name="apple-mobile-web-app-capable" content="yes"/>
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
 <meta name="mobile-web-app-capable" content="yes"/>
@@ -18,9 +18,15 @@
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>"/>
 <link rel="manifest" href="/app/manifest.json"/>
 <link rel="apple-touch-icon" href="/app/icon-192.png"/>
-<link rel="preconnect" href="https://fonts.googleapis.com"/>
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
-<link href="https://fonts.googleapis.com/css2?family=Eczar:wght@500;600;700;800&family=Mukta:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet"/>
+<!-- Fonts are served from this origin rather than a third-party CDN, for
+     three reasons in order of weight: a school network that blocks or
+     throttles that CDN would silently fall back to system fonts and break
+     the type scale; a service worker can only precache same-origin assets,
+     so this is what makes the app render correctly offline; and nobody
+     outside this origin learns which student opened the app. The @font-face
+     rules stay in their own file because they point at /app/fonts/*.woff2,
+     which cannot be inlined the way the CSS and JS below are. -->
+<link rel="stylesheet" href="/app/fonts.css"/>
 
 <style>/*__CSS__*/</style>
 </head>

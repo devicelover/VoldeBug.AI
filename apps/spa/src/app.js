@@ -404,7 +404,18 @@ const T = {
     teacherCloudHint: 'Sample class. Sign in from Profile to create a real class and see your own students here.',
     teacherLive: 'Live — your real classes', principalLive: 'Live — your school',
     teachersLabel: 'Teachers', activeThisWeek: 'Active this week', classGroupLabel: 'Class group',
-    classCodeNotFound: 'Code not found — ask your teacher', classJoined: 'Joined your class'
+    classCodeNotFound: 'Code not found — ask your teacher', classJoined: 'Joined your class',
+    privacyTitle: 'Privacy & your data',
+    privacyLocal: 'Everything you do here is saved only on this device. Nothing is sent anywhere unless you turn on cloud sync in your profile.',
+    privacyDownload: 'Download my data', privacyDownloaded: 'Your data has been downloaded',
+    privacyDownloadFailed: 'Could not download your data on this device',
+    saveFailed: 'Your progress can’t be saved on this device',
+    copyFailed: 'Could not copy — select the text and copy it yourself',
+    liveConnected: 'students connected', liveHere: 'students here',
+    liveReadyTitle: 'Ready to go live?', liveReadySub: 'Students join with the code above',
+    liveCodeErr: 'Enter a valid session code',
+    colTeacher: 'Teacher', colMagicUses: 'Magic tool uses', colClass: 'Class',
+    colStudents: 'Students', colActive: 'Active', colCoverage: 'Coverage'
   },
   hi: {
     home: 'होम', explore: 'खोजें', badges: 'बैज', board: 'कक्षा', profile: 'प्रोफ़ाइल', teacher: 'शिक्षक',
@@ -603,7 +614,18 @@ const T = {
     teacherCloudHint: 'यह नमूना कक्षा है। असली कक्षा बनाने और अपने विद्यार्थी देखने के लिए प्रोफ़ाइल से साइन इन करें।',
     teacherLive: 'लाइव — आपकी असली कक्षाएँ', principalLive: 'लाइव — आपका स्कूल',
     teachersLabel: 'शिक्षक', activeThisWeek: 'इस सप्ताह सक्रिय', classGroupLabel: 'कक्षा समूह',
-    classCodeNotFound: 'कोड नहीं मिला — अपने शिक्षक से पूछें', classJoined: 'आपकी कक्षा से जुड़ गए'
+    classCodeNotFound: 'कोड नहीं मिला — अपने शिक्षक से पूछें', classJoined: 'आपकी कक्षा से जुड़ गए',
+    privacyTitle: 'निजता और आपका डेटा',
+    privacyLocal: 'यहाँ आप जो कुछ भी करते हैं वह सिर्फ़ इसी डिवाइस पर सहेजा जाता है। जब तक आप अपनी प्रोफ़ाइल में क्लाउड सिंक चालू नहीं करते, कुछ भी कहीं नहीं भेजा जाता।',
+    privacyDownload: 'मेरा डेटा डाउनलोड करें', privacyDownloaded: 'आपका डेटा डाउनलोड हो गया',
+    privacyDownloadFailed: 'इस डिवाइस पर आपका डेटा डाउनलोड नहीं हो सका',
+    saveFailed: 'इस डिवाइस पर आपकी प्रगति सहेजी नहीं जा सकती',
+    copyFailed: 'कॉपी नहीं हो सका — टेक्स्ट चुनकर खुद कॉपी करें',
+    liveConnected: 'विद्यार्थी जुड़े हैं', liveHere: 'विद्यार्थी यहाँ हैं',
+    liveReadyTitle: 'लाइव जाने के लिए तैयार?', liveReadySub: 'विद्यार्थी ऊपर दिए कोड से जुड़ते हैं',
+    liveCodeErr: 'सही सेशन कोड डालें',
+    colTeacher: 'शिक्षक', colMagicUses: 'मैजिक टूल उपयोग', colClass: 'कक्षा',
+    colStudents: 'विद्यार्थी', colActive: 'सक्रिय', colCoverage: 'कवरेज'
   }
 };
 
@@ -617,6 +639,11 @@ const DEFAULTS = {
   // child. See the long comment above viewParentHome() for why.
   parentChild: '',
   questDoneOn: '',
+  // Last IST day (YYYY-MM-DD) this device saw activity. Owned by the streak
+  // pass at boot; the server keeps its own equivalent and overwrites streak
+  // and best for a signed-in student, so this is the guest's copy of a rule
+  // the backend already enforces — not a second, competing rule.
+  lastActiveDay: '',
   xp: 0, streak: 1, best: 1, quests: 0,
   toolsSeen: [], toolScores: {}, badges: [], classCode: '', cat: null,
   locale: 'en', dark: false, sound: true, week: [1, 1, 1, 1, 1, 1, 0],
@@ -977,7 +1004,10 @@ const PROMPT_TEMPLATES = [
     blurb: { en: 'Turns a topic into a ready classroom presentation.', hi: 'विषय को कक्षा-प्रस्तुति में बदलता है।' },
     fields: ['topic', 'cls', 'subject', 'chapter', 'count'],
     build: (v) => `Create a ${clampSlideCount(v.count)}-slide presentation explaining ${v.topic} from Class ${v.cls} ${v.subject}, chapter '${v.chapter}'. Use simple language for a ${AGE_FOR_CLASS[v.cls] || 12}-year-old student. Include: 1) a title slide, 2) key definitions, 3) 2-3 real-life examples, 4) one simple diagram description per concept, 5) a 3-question recap quiz on the final slide. Use short bullet points, not paragraphs.`,
-    tools: [{ n: 'Gamma', url: 'https://gamma.app' }, { n: 'Canva Magic Design', url: 'https://www.canva.com/magic-design/' }, { n: 'Tome', url: 'https://tome.app' }] },
+    // Tome was listed here until it shut down its consumer deck product; a
+    // recommendation that lands on a dead or repurposed site costs more trust
+    // than the extra option was ever worth.
+    tools: [{ n: 'Gamma', url: 'https://gamma.app' }, { n: 'Canva Magic Design', url: 'https://www.canva.com/magic-design/' }] },
   { key: 'diagram', c: '#0d9c8a', c2: '#3fc07a', emoji: '🗺️', n: { en: 'Concept Diagram', hi: 'अवधारणा चित्र' },
     blurb: { en: 'A visual, labelled breakdown of a process, cycle, or structure.', hi: 'किसी प्रक्रिया या संरचना का लेबल किया चित्र।' },
     fields: ['topic', 'cls', 'subject', 'chapter'],
@@ -1159,14 +1189,14 @@ const CURRICULUM = {
     official: false,   // sample data — see gsebSampleNote
     classes: {
       8: { science: { label:{en:'Science',hi:'વિજ્ઞાન'}, emoji:'🔬', chapters: [
-        { slug:'crop-production-gj', title:{en:'Crop Production and Management',hi:'પાક ઉત્પાદન અને વ્યવસ્થાપન'}, url:'http://gujarat-education.gov.in/',
+        { slug:'crop-production-gj', title:{en:'Crop Production and Management',hi:'પાક ઉત્પાદન અને વ્યવસ્થાપન'}, url:'https://gujarat-education.gov.in/',
           prompts:[{tool:'chatgpt', text:{en:'Ask it, in Gujarati, to explain kharif and rabi crops with local examples from your district.',hi:'ગુજરાતીમાં ખરીફ અને રવી પાક વિશે, તમારા જિલ્લાના ઉદાહરણો સાથે સમજાવવા કહો.'}}] }
       ] }, maths: { label:{en:'Mathematics',hi:'ગણિત'}, emoji:'🔢', chapters: [
-        { slug:'rational-numbers-gj', title:{en:'Rational Numbers',hi:'સંમેય સંખ્યાઓ'}, url:'http://gujarat-education.gov.in/',
+        { slug:'rational-numbers-gj', title:{en:'Rational Numbers',hi:'સંમેય સંખ્યાઓ'}, url:'https://gujarat-education.gov.in/',
           prompts:[{tool:'wolfram-alpha', text:{en:'Solve your textbook exercise yourself first, then verify each answer.',hi:'પહેલા જાતે દાખલા ગણો, પછી દરેક જવાબ ચકાસો.'}}] }
       ] } },
       10: { science: { label:{en:'Science',hi:'વિજ્ઞાન'}, emoji:'🔬', chapters: [
-        { slug:'chemical-reactions-gj', title:{en:'Chemical Reactions and Equations',hi:'રાસાયણિક પ્રક્રિયાઓ અને સમીકરણો'}, url:'http://gujarat-education.gov.in/',
+        { slug:'chemical-reactions-gj', title:{en:'Chemical Reactions and Equations',hi:'રાસાયણિક પ્રક્રિયાઓ અને સમીકરણો'}, url:'https://gujarat-education.gov.in/',
           prompts:[{tool:'chatgpt', text:{en:'Ask it, in Gujarati, for one home example of each of the 6 reaction types.',hi:'ગુજરાતીમાં, 6 પ્રકારની પ્રક્રિયાનું એક-એક ઘરેલુ ઉદાહરણ પૂછો.'}}] }
       ] } }
     }
@@ -1451,18 +1481,149 @@ const el = (tag, cls, html) => { const n = document.createElement(tag); if (cls)
 const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const reduced = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
 
+/* ------------------------------------------------------- the school's day */
+
+/* "Today" is the school's day, not the device's. A phone on a holiday
+   timezone, or simply set wrong, would otherwise move every day boundary in
+   the app by hours. Asia/Kolkata has no DST, so the fixed +05:30 offset is
+   exact — and this is deliberately the same rule as dayKey() in the API's
+   journey.service.ts, because a streak that the server extends and the
+   client resets (or the reverse) is worse than no client streak at all. */
+function istDayKey(d) {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(d || new Date());
+}
+
+/* Whole days from one YYYY-MM-DD key to the next. Both ends are parsed as
+   UTC midnight rather than local, so the subtraction is exact whole days
+   with no DST or offset remainder to round away. NaN for a malformed key —
+   callers treat that as "no idea how long it has been". */
+function daysBetweenKeys(from, to) {
+  const a = Date.parse(from + 'T00:00:00Z'), b = Date.parse(to + 'T00:00:00Z');
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return NaN;
+  return Math.round((b - a) / 864e5);
+}
+
+/* Mon=0 … Sun=6 for a YYYY-MM-DD key, which is the order the week strip
+   labels are written in. getUTCDay() is 0=Sunday, hence the rotation. */
+function weekdayIndex(key) {
+  const ms = Date.parse(key + 'T00:00:00Z');
+  if (!Number.isFinite(ms)) return 6;
+  return (new Date(ms).getUTCDay() + 6) % 7;
+}
+
+/* S.week is a rolling window of the last seven days, oldest first, so the
+   final slot is always today. It used to be *drawn* as a fixed Mon–Sun week
+   while being *written* at a hardcoded slot 6, which meant a student who
+   completed a quest on Tuesday saw the fire appear under Sunday, and last
+   week's marks never expired. Keeping it a window (and deriving the labels
+   from the real IST weekday) makes the two agree, and makes "shift left by
+   the days that passed" the whole of the expiry logic. */
+const WEEK_SLOTS = 7;
+const WEEK_TODAY = WEEK_SLOTS - 1;
+
+function weekStripLabels() {
+  const names = S.locale === 'hi' ? ['सो', 'मं', 'बु', 'गु', 'शु', 'श', 'र'] : ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+  const today = weekdayIndex(istDayKey(new Date()));
+  return Array.from({ length: WEEK_SLOTS }, (_, i) => names[(today - (WEEK_TODAY - i) + WEEK_SLOTS * 2) % 7]);
+}
+
 /* Storage is wrapped because this file also gets opened straight from disk
    and inside sandboxed preview frames, where localStorage throws instead of
    returning null. A demo that crashes on load is worse than one that forgets. */
+
+/* localStorage is a string the student's own browser hands back, and on a
+   shared school machine it is trivially editable. Anything read out of it is
+   therefore untrusted input, not state: a spread over DEFAULTS restores
+   missing keys but happily keeps `xp: "banana"` or `badges: 42`, which then
+   reaches arithmetic, .includes() and .map() much further from here, where
+   the resulting TypeError reads as a bug in a view.
+   These coercions are about surviving that, not about preventing cheating —
+   a determined student can still set xp to a large number, and only the
+   server (which owns XP for a signed-in account) can stop them. */
+/* Number() is too forgiving on its own: Number(null), Number([]) and
+   Number('') are all a perfectly finite 0, so a corrupted `streak: null`
+   would pass isFinite and land on the Home screen as "🔥 0" — a value the
+   app's own rule says can never occur. Anything that is not a number or a
+   numeric string is treated as absent instead. */
+const num = (v, fallback) => {
+  if (typeof v !== 'number' && typeof v !== 'string') return fallback;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : fallback;
+};
+const strArray = v => Array.isArray(v) ? v.filter(x => typeof x === 'string') : [];
+
+function coerceState(s) {
+  // All four are counters, so they are also floored at their domain minimum:
+  // a streak or a personal best below 1 is not a smaller number, it is a
+  // broken one.
+  s.xp = Math.max(0, Math.round(num(s.xp, DEFAULTS.xp)));
+  s.streak = Math.max(1, Math.round(num(s.streak, DEFAULTS.streak)));
+  s.best = Math.max(1, Math.round(num(s.best, DEFAULTS.best)));
+  s.quests = Math.max(0, Math.round(num(s.quests, DEFAULTS.quests)));
+
+  // Quiz scores are percentages and are read back as bar widths and badge
+  // thresholds. A non-numeric entry is dropped entirely rather than zeroed:
+  // a score of 0 is a claim about a quiz that was actually taken.
+  const scores = {};
+  if (s.toolScores && typeof s.toolScores === 'object') {
+    for (const [k, v] of Object.entries(s.toolScores)) {
+      const n = Number(v);
+      if (Number.isFinite(n)) scores[k] = Math.max(0, Math.min(100, Math.round(n)));
+    }
+  }
+  s.toolScores = scores;
+
+  s.creations = Array.isArray(s.creations) ? s.creations.filter(c => c && typeof c === 'object') : [];
+  // The emoji is rendered unescaped (it is meant to be a glyph, not text), so
+  // its length is capped as well as its type — one grapheme can be several
+  // code units, but nothing legitimate here is longer than eight.
+  s.creations.forEach(c => {
+    if (typeof c.emoji !== 'string' || c.emoji.length > 8) c.emoji = '🌟';
+  });
+
+  // The week strip is a fixed-length rolling window, and both the streak
+  // pass (which slices it) and the render (which indexes it positionally)
+  // assume that shape. A stored value of the wrong length or type would
+  // throw in one and silently mis-draw in the other.
+  const week = Array.isArray(s.week) ? s.week : [];
+  s.week = Array.from({ length: WEEK_SLOTS }, (_, i) => (Number(week[i]) > 0 ? 1 : 0));
+  s.lastActiveDay = typeof s.lastActiveDay === 'string' ? s.lastActiveDay : '';
+
+  s.badges = strArray(s.badges);
+  s.toolsSeen = strArray(s.toolsSeen);
+  s.chaptersUsed = strArray(s.chaptersUsed);
+  s.promptTemplatesUsed = strArray(s.promptTemplatesUsed);
+  s.starterDone = strArray(s.starterDone);
+  s.teacherModulesDone = strArray(s.teacherModulesDone);
+  return s;
+}
+
+/* Told once per session, not once per save. A device that cannot write
+   (private mode, a full quota, a locked-down school profile) fails on every
+   single save, and a toast on each one would bury the app in warnings about
+   a condition the student can do nothing about mid-task. */
+let saveWarned = false;
+
 const store = {
   read() {
     try {
       const raw = localStorage.getItem('voldebug.v2');
-      return raw ? { ...DEFAULTS, ...JSON.parse(raw) } : { ...DEFAULTS };
-    } catch { return { ...DEFAULTS }; }
+      return coerceState(raw ? { ...DEFAULTS, ...JSON.parse(raw) } : { ...DEFAULTS });
+    } catch { return coerceState({ ...DEFAULTS }); }
   },
   write(s) {
-    try { localStorage.setItem('voldebug.v2', JSON.stringify(s)); } catch { /* memory only */ }
+    try {
+      localStorage.setItem('voldebug.v2', JSON.stringify(s));
+      return true;
+    } catch {
+      if (!saveWarned) {
+        saveWarned = true;
+        // t() is defined below this block but only called at runtime, long
+        // after the module has finished evaluating.
+        try { toast('⚠️ ' + t('saveFailed')); } catch {}
+      }
+      return false; // memory only — the session still works, it just won't survive
+    }
   },
   clear() { try { localStorage.removeItem('voldebug.v2'); } catch {} }
 };
@@ -1961,78 +2122,17 @@ function toast(msg) {
   clearTimeout(n._t); n._t = setTimeout(() => n.classList.remove('on'), 2300);
 }
 
-/* ------------------------------------------------------------ voice input */
-
-/* Chrome and Android Chrome ship this as webkitSpeechRecognition; Safari
-   picked it up later under the same prefixed name; Firefox still does not
-   support it at all as of this build. Feature-detected once at module load
-   rather than per-call, since the answer cannot change mid-session. */
-const SpeechRecognitionCtor = window.SpeechRecognition || window.webkitSpeechRecognition || null;
-
-let activeRecognition = null; // only one mic can reasonably be listening at once
-
-/* Wires a single text input to a single mic button. Silently does nothing
-   if the browser has no speech API — the button stays hidden rather than
-   present-but-broken, which is a worse failure than not offering it. */
-function initVoiceInput(inputEl, btnEl) {
-  if (!SpeechRecognitionCtor || !inputEl || !btnEl) return;
-  btnEl.hidden = false;
-
-  btnEl.onclick = () => {
-    // A second tap while already listening should stop it, not start a
-    // second overlapping recognition session.
-    if (activeRecognition) { activeRecognition.stop(); return; }
-
-    const rec = new SpeechRecognitionCtor();
-    rec.lang = S.locale === 'hi' ? 'hi-IN' : 'en-IN';
-    rec.interimResults = false;
-    rec.maxAlternatives = 1;
-
-    activeRecognition = rec;
-    btnEl.classList.add('is-listening');
-    haptic(10);
-
-    rec.onresult = e => {
-      const transcript = e.results?.[0]?.[0]?.transcript || '';
-      if (transcript) {
-        inputEl.value = transcript;
-        // Real input event, not a direct state write — whatever oninput
-        // handler already drives this field (the live prompt preview, in
-        // every case this is wired to today) fires exactly as if the
-        // student had typed it, instead of needing its own parallel path.
-        inputEl.dispatchEvent(new Event('input', { bubbles: true }));
-      }
-    };
-    rec.onerror = () => { toast('🎤 ' + t('voiceError')); };
-    rec.onend = () => { btnEl.classList.remove('is-listening'); activeRecognition = null; };
-
-    try { rec.start(); }
-    catch { btnEl.classList.remove('is-listening'); activeRecognition = null; }
-  };
-}
-
-/* ------------------------------------------------------------ read aloud */
-
-const speechSupported = 'speechSynthesis' in window;
-let activeUtterance = null;
-
-/* Reads plain text aloud in the current locale. Cancels whatever it was
-   already saying rather than queuing — a student tapping "listen" again
-   almost always means "read it again," not "read it again after finishing
-   the last one." */
-function speakText(text, btnEl) {
-  if (!speechSupported || !text) return;
-  window.speechSynthesis.cancel();
-  const u = new SpeechSynthesisUtterance(text);
-  u.lang = S.locale === 'hi' ? 'hi-IN' : 'en-IN';
-  u.rate = 0.95;
-  activeUtterance = u;
-  if (btnEl) {
-    btnEl.classList.add('is-speaking');
-    u.onend = () => btnEl.classList.remove('is-speaking');
-    u.onerror = () => btnEl.classList.remove('is-speaking');
-  }
-  window.speechSynthesis.speak(u);
+/* The clipboard is the one thing this app asks a student to do outside it:
+   copy a prompt, paste it into an AI tool. It also fails routinely and
+   silently — no permission, an insecure origin (a school intranet on plain
+   http), an older WebView. Every call site used to fire the "Copied!" toast
+   unconditionally, so a student whose clipboard was empty went to the tool,
+   pasted nothing, and had no reason to suspect the app. Resolving to a
+   boolean makes the toast follow what actually happened. */
+function copyText(s) {
+  return (navigator.clipboard && navigator.clipboard.writeText
+    ? navigator.clipboard.writeText(s)
+    : Promise.reject()).then(() => true).catch(() => false);
 }
 
 function countTo(node, from, to, dur = 850) {
@@ -2176,8 +2276,13 @@ function takeover(level, badges) {
 
   if (level) { confetti(); chime([523.25, 783.99]); haptic(40); }
 
+  // Focuses the one button inside and keeps Tab there; on close, focus goes
+  // back to whatever the student was on when the level-up interrupted them.
+  const releaseFocus = trapFocus(over.querySelector('.over__panel'));
+
   const close = () => {
     if (tick) clearInterval(tick);
+    releaseFocus();
     over.remove();
     document.removeEventListener('keydown', onKey);
     openOverlayClosers = openOverlayClosers.filter(fn => fn !== close);
@@ -2189,7 +2294,6 @@ function takeover(level, badges) {
   over.addEventListener('click', e => { if (e.target === over) close(); });
   document.addEventListener('keydown', onKey);
   openOverlayClosers.push(close);
-  over.querySelector('#overBtn').focus();
 }
 
 /* ------------------------------------------------------------------ sheets */
@@ -2257,11 +2361,70 @@ function closeAllOverlays() {
   openOverlayClosers = [];
 }
 
+/* ===========================================================================
+   FOCUS CONTAINMENT for the two genuinely modal things here: the bottom
+   sheet and the level-up takeover. Both already declare aria-modal, which is
+   a promise to assistive tech that the rest of the page is inert — but Tab
+   walked straight out of them into the page behind, so a keyboard or
+   screen-reader student ended up operating a UI hidden under the scrim, with
+   no way to tell where they were. Restoring focus on close matters just as
+   much: a sheet that closes and leaves focus on <body> drops the student
+   back at the top of the document, losing their place entirely.
+   =========================================================================== */
+
+const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+/* Overlays stack (a tool sheet opens the guardrails sheet on top of itself),
+   and only the topmost one may own the keyboard — otherwise the one
+   underneath keeps yanking focus back out of the one the student is using. */
+let focusTrapStack = [];
+
+function trapFocus(container) {
+  if (!container) return () => {};
+  const previous = document.activeElement;
+  focusTrapStack.push(container);
+
+  // Recomputed per keypress, never cached: sheet bodies are re-rendered in
+  // place (Voldy swaps its whole question list for an answer), so a list
+  // captured at open time would point at detached nodes.
+  const items = () => Array.from(container.querySelectorAll(FOCUSABLE))
+    .filter(n => !n.hidden && n.offsetParent !== null);
+
+  const firstNow = items()[0];
+  if (firstNow) { try { firstNow.focus(); } catch {} }
+
+  const onKey = e => {
+    if (e.key !== 'Tab') return;
+    if (focusTrapStack[focusTrapStack.length - 1] !== container) return;
+    const list = items();
+    if (!list.length) return;
+    const first = list[0], last = list[list.length - 1];
+    if (!container.contains(document.activeElement)) { e.preventDefault(); first.focus(); return; }
+    if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+    else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+  };
+  // Capture phase: the trap has to see Tab before anything inside the sheet
+  // can stop its propagation.
+  document.addEventListener('keydown', onKey, true);
+
+  return () => {
+    focusTrapStack = focusTrapStack.filter(c => c !== container);
+    document.removeEventListener('keydown', onKey, true);
+    // Only if it is still on the page — the element that opened the sheet is
+    // often gone by now, destroyed by the re-render the sheet triggered.
+    try { if (previous && previous.isConnected && previous.focus) previous.focus(); } catch {}
+  };
+}
+
 function sheet(html, onMount) {
   const scrim = el('div', 'scrim');
   scrim.innerHTML = `<div class="sheet" role="dialog" aria-modal="true"><div class="sheet__grab"></div>${html}</div>`;
   document.body.appendChild(scrim);
+  // Before onMount, so a mount handler that focuses a specific field (the
+  // creation title, the email box) still wins.
+  const releaseFocus = trapFocus(scrim.querySelector('.sheet'));
   const close = () => {
+    releaseFocus();
     scrim.remove();
     document.removeEventListener('keydown', onKey);
     openOverlayClosers = openOverlayClosers.filter(fn => fn !== close);
@@ -2302,7 +2465,13 @@ function hashParams() {
   q.split('&').forEach(pair => {
     if (!pair) return;
     const [k, v] = pair.split('=');
-    if (k) out[decodeURIComponent(k)] = decodeURIComponent(v || '');
+    if (!k) return;
+    // A hash is whatever is in the address bar: a truncated share link, an
+    // autocorrected paste, a stray '%' typed by hand. decodeURIComponent
+    // throws URIError on any of those, and an uncaught throw here kills the
+    // whole render — a blank app for a malformed URL. A bad pair is skipped;
+    // the rest of the sub-navigation still works.
+    try { out[decodeURIComponent(k)] = decodeURIComponent(v || ''); } catch {}
   });
   return out;
 }
@@ -2381,9 +2550,9 @@ function shell() {
       <div class="brand"><span class="brand-bolt">⚡</span> VOL<em>DEBUG</em></div>
       ${nav.map(([k, i, lbl]) => `<button class="rail-item ${r === k ? 'on' : ''}" data-go="${k}"><i>${icon(i, 21)}</i>${esc(t(lbl))}</button>`).join('')}
       <div class="rail-foot">
-        <button class="icon-btn" data-act="lang" title="Language">${S.locale === 'en' ? 'हिं' : 'EN'}</button>
-        <button class="icon-btn" data-act="sound" aria-pressed="${S.sound}" title="Sound">${S.sound ? '🔊' : '🔇'}</button>
-        <button class="icon-btn" data-act="theme" title="Theme">${S.dark ? '☀️' : '🌙'}</button>
+        <button class="icon-btn" data-act="lang" title="Language" aria-label="${esc(t('language'))}">${S.locale === 'en' ? 'हिं' : 'EN'}</button>
+        <button class="icon-btn" data-act="sound" aria-pressed="${S.sound}" title="Sound" aria-label="${esc(t('sound'))}">${S.sound ? '🔊' : '🔇'}</button>
+        <button class="icon-btn" data-act="theme" title="Theme" aria-label="${esc(t('darkMode'))}">${S.dark ? '☀️' : '🌙'}</button>
       </div>
     </aside>
 
@@ -2396,8 +2565,8 @@ function shell() {
         ${S.role === 'principal' ? `<span class="chip chip--sky">🏛️ ${esc(t('principal_r'))}</span>` : ''}
         ${S.role === 'parent' ? `<span class="chip chip--sky">👪 ${esc(t('parent_r'))}</span>` : ''}
         ${S.role === 'student' ? `<button class="icon-btn" data-go="search" title="${esc(t('search'))}" aria-label="${esc(t('search'))}">${icon('search', 18)}</button>` : ''}
-        <button class="icon-btn" data-act="lang">${S.locale === 'en' ? 'हिं' : 'EN'}</button>
-        <button class="icon-btn" data-act="theme">${S.dark ? '☀️' : '🌙'}</button>
+        <button class="icon-btn" data-act="lang" aria-label="${esc(t('language'))}">${S.locale === 'en' ? 'हिं' : 'EN'}</button>
+        <button class="icon-btn" data-act="theme" aria-label="${esc(t('darkMode'))}">${S.dark ? '☀️' : '🌙'}</button>
       </header>
       <main class="content" id="viewRoot"></main>
     </div>
@@ -2536,7 +2705,7 @@ function viewPapers() {
 
     <div class="card no-print" style="margin-bottom:16px">
       <div class="field" style="margin-bottom:12px">
-        <label>${esc(t('papersClassSubject'))}</label>
+        <label for="pqPair">${esc(t('papersClassSubject'))}</label>
         <select class="input" id="pqPair">
           <option value="">— ${esc(t('papersPick'))} —</option>
           ${pairs.map(c => `<option value="${esc(c.cls)}|${esc(c.subject)}" ${setup.cls === c.cls && setup.subject === c.subject ? 'selected' : ''}>${esc(t('planClass'))} ${esc(c.cls)} · ${esc(c.subject)}</option>`).join('')}
@@ -2555,17 +2724,17 @@ function viewPapers() {
 
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
         <div class="field" style="margin:0">
-          <label>${esc(t('papersMarks'))}</label>
+          <label for="pqMarks">${esc(t('papersMarks'))}</label>
           <input class="input" id="pqMarks" type="number" min="10" max="100" value="${esc(setup.marks)}"/>
         </div>
         <div class="field" style="margin:0">
-          <label>${esc(t('papersDuration'))}</label>
+          <label for="pqDuration">${esc(t('papersDuration'))}</label>
           <input class="input" id="pqDuration" type="number" min="1" max="4" step="0.5" value="${esc(setup.duration)}"/>
         </div>
       </div>
 
       <div class="field" style="margin-bottom:12px">
-        <label>${esc(t('papersPattern'))}</label>
+        <label for="pqPattern">${esc(t('papersPattern'))}</label>
         <select class="input" id="pqPattern">
           <option value="four" ${setup.pattern === 'four' ? 'selected' : ''}>${esc(t('papersFour'))}</option>
           <option value="five" ${setup.pattern === 'five' ? 'selected' : ''}>${esc(t('papersFive'))}</option>
@@ -2575,9 +2744,9 @@ function viewPapers() {
       <div class="field" style="margin-bottom:4px">
         <label>${esc(t('papersDifficulty'))}</label>
         <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">
-          <input class="input" id="pqEasy" type="number" min="0" max="100" value="${esc(setup.easy)}" placeholder="${esc(t('papersEasy'))}"/>
-          <input class="input" id="pqMedium" type="number" min="0" max="100" value="${esc(setup.medium)}" placeholder="${esc(t('papersMedium'))}"/>
-          <input class="input" id="pqHard" type="number" min="0" max="100" value="${esc(setup.hard)}" placeholder="${esc(t('papersHard'))}"/>
+          <input class="input" id="pqEasy" type="number" min="0" max="100" value="${esc(setup.easy)}" placeholder="${esc(t('papersEasy'))}" aria-label="${esc(t('papersDifficulty'))} — ${esc(t('papersEasy'))}"/>
+          <input class="input" id="pqMedium" type="number" min="0" max="100" value="${esc(setup.medium)}" placeholder="${esc(t('papersMedium'))}" aria-label="${esc(t('papersDifficulty'))} — ${esc(t('papersMedium'))}"/>
+          <input class="input" id="pqHard" type="number" min="0" max="100" value="${esc(setup.hard)}" placeholder="${esc(t('papersHard'))}" aria-label="${esc(t('papersDifficulty'))} — ${esc(t('papersHard'))}"/>
         </div>
         <p class="paper-diffread">${esc(t('papersEasy'))} ${diff.easy}% · ${esc(t('papersMedium'))} ${diff.medium}% · ${esc(t('papersHard'))} ${diff.hard}%</p>
       </div>
@@ -2671,11 +2840,11 @@ function viewPlanner() {
     <div class="card no-print" style="margin-bottom:16px">
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
         <div class="field" style="margin:0">
-          <label>${esc(t('planClass'))}</label>
+          <label for="planCls">${esc(t('planClass'))}</label>
           <input class="input" id="planCls" value="${esc(S.planMeta.cls)}" placeholder="e.g. 8-A" autocomplete="off"/>
         </div>
         <div class="field" style="margin:0">
-          <label>${esc(t('planWeek'))}</label>
+          <label for="planWeek">${esc(t('planWeek'))}</label>
           <input class="input" id="planWeek" type="date" value="${esc(S.planMeta.week)}"/>
         </div>
       </div>
@@ -2730,20 +2899,20 @@ function openPlanSheet(day) {
     <h2 style="font-size:20px;margin-bottom:4px">${esc(t('planAddLesson'))}</h2>
     <p class="muted" style="font-weight:600;margin-bottom:14px">${esc(t(day))}</p>
     <div class="field">
-      <label>${esc(t('planPickChapter'))}</label>
+      <label for="plChapter">${esc(t('planPickChapter'))}</label>
       <select class="input" id="plChapter">
         ${chapters.map(c => `<option value="${esc(c.id)}">${esc(t('planClass'))} ${esc(c.cls)} · ${esc(c.subject)} — ${esc(c.title)}</option>`).join('')}
       </select>
     </div>
     <div class="field">
-      <label>${esc(t('planPickPrompt'))}</label>
+      <label for="plTpl">${esc(t('planPickPrompt'))}</label>
       <select class="input" id="plTpl">
         <option value="">—</option>
         ${PROMPT_TEMPLATES.map(tp => `<option value="${esc(tp.key)}">${tp.emoji} ${esc(L(tp.n))}</option>`).join('')}
       </select>
     </div>
     <div class="field">
-      <label>${esc(t('planNote'))}</label>
+      <label for="plNote">${esc(t('planNote'))}</label>
       <input class="input" id="plNote" placeholder="${S.locale==='hi'?'जैसे: पहले 10 मिनट रिवीज़न':'e.g. first 10 min revision'}" autocomplete="off"/>
     </div>
     <button class="btn btn--primary btn--block" id="plSave">${esc(t('planSave'))}</button>
@@ -2876,7 +3045,7 @@ function viewHome() {
   const av = AVATARS.find(a => a.k === S.avatar) || AVATARS[0];
   const quest = groupQuests()[(S.quests + new Date().getDate()) % groupQuests().length];
   const questDone = S.questDoneOn === new Date().toDateString();
-  const days = S.locale === 'hi' ? ['सो', 'मं', 'बु', 'गु', 'शु', 'श', 'र'] : ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+  const days = weekStripLabels(); // rolling: last label is today, not a fixed Sunday
   const next = groupTools().find(x => !S.toolsSeen.includes(x.slug));
 
   return `<div class="view">
@@ -2900,7 +3069,7 @@ function viewHome() {
         <div class="xpline"><b id="xpNow">0</b><small>/ ${band.toLocaleString()} XP</small></div>
         <div class="bar"><div class="bar__fill" id="barFill" style="width:0%"></div></div>
         <div class="week">
-          ${days.map((d, i) => `<div class="week__day ${S.week[i] ? 'hit' : ''} ${i === 6 ? 'today' : ''}"><b>${S.week[i] ? '🔥' : '·'}</b>${d}</div>`).join('')}
+          ${days.map((d, i) => `<div class="week__day ${S.week[i] ? 'hit' : ''} ${i === WEEK_TODAY ? 'today' : ''}"><b>${S.week[i] ? '🔥' : '·'}</b>${d}</div>`).join('')}
         </div>
       </div>
     </section>
@@ -2985,7 +3154,7 @@ function afterHome() {
   const qb = $('#questBtn');
   if (qb) qb.onclick = () => {
     S.quests++; S.questDoneOn = new Date().toDateString();
-    S.week[6] = 1; save();
+    S.week[WEEK_TODAY] = 1; save();
     pushEvent('quest_completed', {});
     gain(XP.quest, t('challengeOfDay'));
     render();
@@ -3009,8 +3178,14 @@ function afterHome() {
    its tools; tapping a tool opens the same sheet + quiz flow as before. */
 
 function viewExplore() {
-  S.exploreCat = hashParams().cat || null;
-  const openCat = S.exploreCat;
+  const requested = hashParams().cat || null;
+  // The category key comes from the URL, so it can name a category that was
+  // renamed, removed, or never existed (an old bookmark, a mistyped share).
+  // Falling through with an undefined cat would throw on cat.blurb and blank
+  // the page; the honest recovery is the category picker the student was
+  // trying to reach anyway.
+  const openCat = (!requested || requested === '__all' || CAT_BY_KEY.has(requested)) ? requested : null;
+  S.exploreCat = openCat;
 
   if (!openCat) {
     return `<div class="view">
@@ -3117,9 +3292,15 @@ function toolSheet(slug, opts) {
   `, (node, close) => {
     node.querySelector('#copyPrompt').onclick = () => {
       const text = opts && opts.promptOverride ? opts.promptOverride : L(x.prompt);
-      try { navigator.clipboard.writeText(text); } catch {}
-      toast(t('copied')); haptic();
-      if (!S.toolsSeen.includes(slug)) { S.toolsSeen.push(slug); save(); logEvent('tool', L(x.n), x.e); pushEvent('tool_explored', { slug }); gain(XP.tool, L(x.n)); }
+      haptic();
+      // The XP award waits for the copy to settle only so the two toasts
+      // still arrive in their original order — exploring the tool is earned
+      // by opening this sheet, not by the clipboard cooperating, so a failed
+      // copy must not cost the student the XP.
+      copyText(text).then(ok => {
+        toast(ok ? t('copied') : '⚠️ ' + t('copyFailed'));
+        if (!S.toolsSeen.includes(slug)) { S.toolsSeen.push(slug); save(); logEvent('tool', L(x.n), x.e); pushEvent('tool_explored', { slug }); gain(XP.tool, L(x.n)); }
+      });
     };
     node.querySelector('#startQuiz').onclick = () => {
       if (!S.toolsSeen.includes(slug)) { S.toolsSeen.push(slug); save(); logEvent('tool', L(x.n), x.e); pushEvent('tool_explored', { slug }); }
@@ -3156,7 +3337,7 @@ function viewQuiz() {
 
   return `<div class="view">
     <div class="quiz__prog">
-      <button class="icon-btn" id="quizBackBtn">←</button>
+      <button class="icon-btn" id="quizBackBtn" aria-label="${esc(t('backStep'))}">←</button>
       <div style="flex:1">
         <div class="bar bar--thin"><div class="bar__fill" style="width:${(quizState.i / qs.length) * 100}%"></div></div>
       </div>
@@ -3388,7 +3569,7 @@ function curriculumPrompts(board, subject, chapter) {
 
     <div class="card card--ruled chapter-card reveal">
       <p class="chapter-card__title">${esc(L(chapter.title))}</p>
-      <p class="muted" style="font-size:13px;font-weight:700">${esc(L(board.label))} · ${S.locale==='hi'?'कक्षा':'Class'} ${S.curClass} · ${esc(L(subject.label))}</p>
+      <p class="muted" style="font-size:13px;font-weight:700">${esc(L(board.label))} · ${S.locale==='hi'?'कक्षा':'Class'} ${esc(S.curClass)} · ${esc(L(subject.label))}</p>
       <a href="${chapter.url}" target="_blank" rel="noopener noreferrer" class="btn btn--ghost btn--block" style="margin-top:14px;text-decoration:none">
         📘 ${esc(t('readChapter'))}
       </a>
@@ -3538,32 +3719,29 @@ function promptBuildView(tplKey) {
       <p style="font-size:13px;font-weight:900;letter-spacing:1px;text-transform:uppercase;color:var(--dim);margin-bottom:12px">${esc(t('fillDetails'))}</p>
       <div class="field">
         <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px">
-          <label style="margin-bottom:0">${esc(t('fieldTopic'))}</label>
+          <label for="pfTopic" style="margin-bottom:0">${esc(t('fieldTopic'))}</label>
           <button type="button" id="pfSurprise" class="chip" style="font-size:12px">🎲 ${esc(t('surpriseMe'))}</button>
         </div>
-        <div class="voice-field">
-          <input class="input" id="pfTopic" value="${esc(promptDraft.topic)}" placeholder="e.g. Photosynthesis" autocomplete="off"/>
-          <button type="button" class="voice-mic" id="pfMic" data-voicetarget="pfTopic" aria-label="${esc(t('voiceInput'))}" hidden>${icon('mic', 17)}</button>
-        </div>
+        <input class="input" id="pfTopic" value="${esc(promptDraft.topic)}" placeholder="e.g. Photosynthesis" autocomplete="off"/>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
         <div class="field">
-          <label>${esc(t('fieldClass'))}</label>
+          <label for="pfClass">${esc(t('fieldClass'))}</label>
           <select class="input" id="pfClass">
             ${[6,7,8,9,10,11,12].map(n => `<option value="${n}" ${String(n)===promptDraft.cls?'selected':''}>${n}</option>`).join('')}
           </select>
         </div>
         <div class="field">
-          <label>${esc(t('fieldSubject'))}</label>
+          <label for="pfSubject">${esc(t('fieldSubject'))}</label>
           <input class="input" id="pfSubject" value="${esc(promptDraft.subject)}" placeholder="e.g. Science" autocomplete="off"/>
         </div>
       </div>
       <div class="field">
-        <label>${esc(t('fieldChapter'))}</label>
+        <label for="pfChapter">${esc(t('fieldChapter'))}</label>
         <input class="input" id="pfChapter" value="${esc(promptDraft.chapter)}" placeholder="e.g. Life Processes" autocomplete="off"/>
       </div>
       ${tpl.fields.includes('count') ? `<div class="field">
-        <label>${esc(t('fieldSlideCount'))}</label>
+        <label for="pfCount">${esc(t('fieldSlideCount'))}</label>
         <input class="input" id="pfCount" type="number" min="4" max="15" value="${esc(promptDraft.count)}"/>
       </div>` : ''}
     </div>
@@ -3600,15 +3778,19 @@ function renderPromptPreview() {
     <button class="btn btn--primary btn--block" style="margin-top:12px" id="pfCopyBtn">📋 ${esc(t('copyPromptBtn'))}</button>`;
 
   $('#pfCopyBtn').onclick = () => {
-    try { navigator.clipboard.writeText(text); } catch {}
-    toast('✨ ' + t('promptCopied')); haptic();
-    recordPromptHistory(tpl.key, text, promptDraft.topic);
-    if (!S.promptTemplatesUsed.includes(tpl.key)) {
-      S.promptTemplatesUsed.push(tpl.key); save();
-      logEvent('prompt', L(tpl.n), promptDraft.topic || '');
-      pushEvent('prompt_built', { tplKey: tpl.key });
-      gain(XP.promptBuilt, L(tpl.n));
-    }
+    haptic();
+    copyText(text).then(ok => {
+      toast(ok ? '✨ ' + t('promptCopied') : '⚠️ ' + t('copyFailed'));
+      // The prompt was still built, so it is still history and still XP —
+      // only the claim that it reached the clipboard is conditional.
+      recordPromptHistory(tpl.key, text, promptDraft.topic);
+      if (!S.promptTemplatesUsed.includes(tpl.key)) {
+        S.promptTemplatesUsed.push(tpl.key); save();
+        logEvent('prompt', L(tpl.n), promptDraft.topic || '');
+        pushEvent('prompt_built', { tplKey: tpl.key });
+        gain(XP.promptBuilt, L(tpl.n));
+      }
+    });
   };
 }
 
@@ -3779,7 +3961,7 @@ function viewPromptSandbox() {
     </div>
 
     <div class="field">
-      <label>${esc(t('sandboxLabel'))}</label>
+      <label for="sbInput">${esc(t('sandboxLabel'))}</label>
       <textarea class="input" id="sbInput" rows="3" placeholder="${esc(t('sandboxPh'))}">${esc(draft)}</textarea>
     </div>
     <button class="btn btn--violet btn--block" id="sbCheck">🧪 ${esc(t('sandboxCheck'))}</button>
@@ -3857,8 +4039,8 @@ function afterPromptLibrary() {
   document.querySelectorAll('[data-copyhist]').forEach(b => b.onclick = () => {
     const h = S.promptHistory.find(x => x.id === b.dataset.copyhist);
     if (!h) return;
-    try { navigator.clipboard.writeText(h.text); } catch {}
-    toast('✨ ' + t('promptCopied')); haptic();
+    haptic();
+    copyText(h.text).then(ok => toast(ok ? '✨ ' + t('promptCopied') : '⚠️ ' + t('copyFailed')));
   });
   document.querySelectorAll('[data-reusehist]').forEach(b => b.onclick = () => {
     const h = S.promptHistory.find(x => x.id === b.dataset.reusehist);
@@ -3912,14 +4094,16 @@ function afterPromptLibrary() {
         </div>
       `, (node) => {
         node.querySelector('#exCopyBtn').onclick = () => {
-          try { navigator.clipboard.writeText(text); } catch {}
-          toast('✨ ' + t('promptCopied')); haptic();
-          recordPromptHistory(tpl.key, text, ex.topic);
-          if (!S.promptTemplatesUsed.includes(tpl.key)) {
-            S.promptTemplatesUsed.push(tpl.key); save();
-            pushEvent('prompt_built', { tplKey: tpl.key });
-            gain(XP.promptBuilt, L(tpl.n));
-          }
+          haptic();
+          copyText(text).then(ok => {
+            toast(ok ? '✨ ' + t('promptCopied') : '⚠️ ' + t('copyFailed'));
+            recordPromptHistory(tpl.key, text, ex.topic);
+            if (!S.promptTemplatesUsed.includes(tpl.key)) {
+              S.promptTemplatesUsed.push(tpl.key); save();
+              pushEvent('prompt_built', { tplKey: tpl.key });
+              gain(XP.promptBuilt, L(tpl.n));
+            }
+          });
         };
       });
     });
@@ -3998,21 +4182,21 @@ function openCreationSheet() {
   sheet(`
     <h2 style="font-size:21px;margin-bottom:14px">➕ ${esc(t('addCreation'))}</h2>
     <div class="field">
-      <label>${esc(t('creationTitle'))}</label>
+      <label for="ncTitle">${esc(t('creationTitle'))}</label>
       <input class="input" id="ncTitle" placeholder="${S.locale==='hi'?'जैसे: जल-चक्र पोस्टर':'e.g. Water cycle poster'}" autocomplete="off"/>
       <p class="field__err" id="ncErr"></p>
     </div>
     <div class="field">
-      <label>${esc(t('creationTool'))}</label>
+      <label for="ncTool">${esc(t('creationTool'))}</label>
       <input class="input" id="ncTool" placeholder="${S.locale==='hi'?'जैसे: कैनवा एआई':'e.g. Canva AI'}" autocomplete="off"/>
     </div>
     <div class="field">
-      <label>${esc(t('creationLink'))}</label>
+      <label for="ncLink">${esc(t('creationLink'))}</label>
       <input class="input" id="ncLink" placeholder="https://..." inputmode="url" autocomplete="off"/>
       <p class="field__err" id="ncLinkErr"></p>
     </div>
     <div class="field">
-      <label>${esc(t('creationNote'))}</label>
+      <label for="ncNote">${esc(t('creationNote'))}</label>
       <input class="input" id="ncNote" placeholder="${S.locale==='hi'?'इसके बारे में एक पंक्ति':'One line about it'}" autocomplete="off"/>
     </div>
     <button class="btn btn--primary btn--block" id="ncSave">${esc(t('saveCreation'))}</button>
@@ -4444,6 +4628,10 @@ function viewBoard() {
   return `<div class="view">
     <div class="sec-head"><h2>${esc(t('classBoard'))}</h2></div>
     <p class="muted" style="font-weight:600;font-size:15px;margin-bottom:14px">${esc(t('boardSub'))}</p>
+    ${/* Only on the mock path. When `live` is set these are real classmates
+          from the server, and labelling them as sample data would be a
+          different lie from the one this note exists to prevent. */''}
+    ${live ? '' : `<div class="demo-note">🧪 ${esc(t('demoNote'))}</div>`}
     ${live ? `<p class="chip chip--flame" style="margin-bottom:14px">● ${S.locale === 'hi' ? 'लाइव — आपकी असली क्लास' : 'Live — your real class'}</p>` : `<div class="segment" style="margin-bottom:14px">
       <button class="${!weekly ? 'on' : ''}" data-board="all">${esc(t('allTime'))}</button>
       <button class="${weekly ? 'on' : ''}" data-board="week">${esc(t('thisWeek'))}</button>
@@ -4564,6 +4752,50 @@ function openAuthSheet(mode) {
   });
 }
 
+/* Sits directly under the cloud-sync card because the two are one statement
+   read together: that card offers to send progress somewhere, this one says
+   what happens when you don't take the offer. The export is the other half —
+   a claim that the data is the student's own is worth very little if they
+   cannot get a copy of it out. */
+function privacyCard() {
+  return `<section class="sec reveal">
+    <div class="sec-head"><h2>🔒 ${esc(t('privacyTitle'))}</h2></div>
+    <div class="card">
+      <p class="muted" style="font-weight:700;font-size:14px;line-height:1.55">${esc(t('privacyLocal'))}</p>
+      <button class="btn btn--ghost btn--block" style="margin-top:12px" id="dlData">⬇️ ${esc(t('privacyDownload'))}</button>
+    </div>
+  </section>`;
+}
+
+/* The stored string, not a re-serialisation of the in-memory S: what a
+   student is owed is the record this device actually holds, including any
+   key an older build wrote and this one no longer reads. Pretty-printed
+   because the audience is a person (or a parent), not a parser.
+   Every step here can fail on a locked-down browser — blocked storage, no
+   Blob/URL, a download attribute that does nothing — so the whole thing is
+   one try/catch and the toast reports which way it went. */
+function downloadMyData() {
+  try {
+    const raw = localStorage.getItem('voldebug.v2');
+    const pretty = JSON.stringify(raw ? JSON.parse(raw) : {}, null, 2);
+    const url = URL.createObjectURL(new Blob([pretty], { type: 'application/json' }));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'voldebug-data.json';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    // Revoked on a later turn of the event loop: some browsers have not
+    // started reading the blob by the time click() returns.
+    setTimeout(() => { try { URL.revokeObjectURL(url); } catch {} }, 1000);
+    toast('⬇️ ' + t('privacyDownloaded'));
+    haptic();
+  } catch {
+    toast('⚠️ ' + t('privacyDownloadFailed'));
+    haptic(60);
+  }
+}
+
 function viewProfile() {
   const lvl = levelForXp(S.xp);
   const av = AVATARS.find(a => a.k === S.avatar) || AVATARS[0];
@@ -4581,6 +4813,8 @@ function viewProfile() {
     </section>
 
     ${cloudCard()}
+
+    ${privacyCard()}
 
     <section class="sec reveal">
       <div class="sec-head"><h2>${esc(t('certificate'))}</h2><p>${esc(t('certSub'))}</p></div>
@@ -4648,6 +4882,8 @@ function afterProfile() {
     toast('☁️ ' + t('cloudSignedOutMsg'));
     render();
   };
+  const dd = $('#dlData');
+  if (dd) dd.onclick = downloadMyData;
   const dl = $('#dlCert');
   if (dl) dl.onclick = () => {
     const cv = $('#cert');
@@ -4727,34 +4963,34 @@ function drawCert() {
   c.globalAlpha = 1;
 
   c.textAlign = 'center';
-  c.fillStyle = '#ffc93c'; c.font = '700 26px "Baloo 2", sans-serif';
+  c.fillStyle = '#ffc93c'; c.font = '700 26px "Eczar", sans-serif';
   c.fillText('⚡ VOLDEBUG', W / 2, 112);
-  c.fillStyle = 'rgba(255,255,255,.62)'; c.font = '600 16px "Nunito Sans", sans-serif';
+  c.fillStyle = 'rgba(255,255,255,.62)'; c.font = '600 16px "Mukta", sans-serif';
   c.fillText('AI  E D U C A T I O N   P O R T A L', W / 2, 142);
 
-  c.fillStyle = '#fff'; c.font = '700 44px "Baloo 2", sans-serif';
+  c.fillStyle = '#fff'; c.font = '700 44px "Eczar", sans-serif';
   c.fillText('Certificate of Achievement', W / 2, 232);
 
-  c.fillStyle = 'rgba(255,255,255,.68)'; c.font = '600 19px "Nunito Sans", sans-serif';
+  c.fillStyle = 'rgba(255,255,255,.68)'; c.font = '600 19px "Mukta", sans-serif';
   c.fillText('presented to', W / 2, 288);
 
-  c.fillStyle = '#ffc93c'; c.font = '800 56px "Baloo 2", sans-serif';
+  c.fillStyle = '#ffc93c'; c.font = '800 56px "Eczar", sans-serif';
   c.fillText(S.name || 'Student', W / 2, 356);
 
   c.strokeStyle = 'rgba(255,201,60,.4)'; c.lineWidth = 2;
   c.beginPath(); c.moveTo(W / 2 - 190, 378); c.lineTo(W / 2 + 190, 378); c.stroke();
 
-  c.fillStyle = 'rgba(255,255,255,.85)'; c.font = '600 20px "Nunito Sans", sans-serif';
+  c.fillStyle = 'rgba(255,255,255,.85)'; c.font = '600 20px "Mukta", sans-serif';
   c.fillText(`for reaching Level ${lvl} — ${groupTitleFor(lvl)[1]}`, W / 2, 420);
   c.fillText(`${S.xp.toLocaleString()} XP  ·  ${S.badges.length} badges  ·  ${S.toolsSeen.length} AI tools explored`, W / 2, 456);
 
   const date = new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' });
-  c.fillStyle = 'rgba(255,255,255,.55)'; c.font = '600 16px "Nunito Sans", sans-serif';
+  c.fillStyle = 'rgba(255,255,255,.55)'; c.font = '600 16px "Mukta", sans-serif';
   c.fillText(date, W / 2, 560);
 
   c.strokeStyle = 'rgba(255,255,255,.3)';
   c.beginPath(); c.moveTo(W / 2 - 130, 606); c.lineTo(W / 2 + 130, 606); c.stroke();
-  c.fillStyle = 'rgba(255,255,255,.5)'; c.font = '600 14px "Nunito Sans", sans-serif';
+  c.fillStyle = 'rgba(255,255,255,.5)'; c.font = '600 14px "Mukta", sans-serif';
   c.fillText('Voldebug Innovations Pvt. Ltd.', W / 2, 632);
 }
 
@@ -5000,13 +5236,10 @@ function teacherRosterRows(members) {
   }).join('');
 }
 
-/* "Today" is the school's day, not the device's. A phone left on a holiday
-   timezone (or simply set wrong) would otherwise move the whole staffroom's
-   "active today" line by hours. Asia/Kolkata has no DST, so the fixed +05:30
-   offset is exact. */
+/* Midnight IST as a UTC instant, for the staffroom's "active today" line.
+   Same day boundary as everything else in the app — see istDayKey(). */
 function istDayStart() {
-  const k = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date());
-  return new Date(k + 'T00:00:00.000+05:30').getTime();
+  return new Date(istDayKey(new Date()) + 'T00:00:00.000+05:30').getTime();
 }
 
 function viewTeacher() {
@@ -5131,13 +5364,13 @@ function afterTeacher() {
   const cc = $('#copyCode');
   if (cc) cc.onclick = () => {
     const code = (sel ? sel.code : (S.classCode || 'VD7K2M')).toUpperCase();
-    try { navigator.clipboard.writeText(code); } catch {}
-    toast(t('codeCopied')); haptic();
+    haptic();
+    copyText(code).then(ok => toast(ok ? t('codeCopied') : '⚠️ ' + t('copyFailed')));
   };
 
   document.querySelectorAll('[data-copy-cls]').forEach(b => b.onclick = () => {
-    try { navigator.clipboard.writeText(b.dataset.copyCls); } catch {}
-    toast(t('codeCopied')); haptic();
+    haptic();
+    copyText(b.dataset.copyCls).then(ok => toast(ok ? t('codeCopied') : '⚠️ ' + t('copyFailed')));
   });
 
   document.querySelectorAll('[data-cls]').forEach(b => b.onclick = () => {
@@ -5176,6 +5409,10 @@ function afterTeacher() {
 
 let liveState = { active: false, code: '', qIndex: 0, answered: false, results: {} };
 
+/* The one invented number on this screen, named so it reads as invented at
+   both call sites and so the count stays out of the translated string. */
+const LIVE_MOCK_STUDENTS = 25;
+
 const LIVE_QUESTIONS = [
   { q:{en:'Which AI tool is best for checking facts?',hi:'तथ्य जाँचने के लिए कौन-सा एआई टूल सबसे अच्छा है?'}, opts:[{en:'ChatGPT',hi:'चैटजीपीटी'},{en:'Perplexity',hi:'पर्प्लेक्सिटी'},{en:'Suno',hi:'सुनो'},{en:'Canva AI',hi:'कैनवा एआई'}], a:1 },
   { q:{en:'A good prompt should always include:',hi:'अच्छे प्रॉम्प्ट में हमेशा होना चाहिए:'}, opts:[{en:'Just one word',hi:'सिर्फ एक शब्द'},{en:'Lots of exclamation marks',hi:'ढेर सारे विस्मयादिबोधक चिह्न'},{en:'Context, format and audience',hi:'संदर्भ, प्रारूप और दर्शक'},{en:'Only questions',hi:'केवल सवाल'}], a:2 },
@@ -5197,11 +5434,16 @@ function viewLiveTeacher() {
 
   return `<div class="view">
     <div class="sec-head"><h2>${esc(t('live'))}</h2></div>
+    ${/* Nothing on this screen is connected to anything: the code is
+          generated locally, the response bars are a fixed object, and no
+          student device can actually join. Live polling needs a socket
+          server this static frontend does not have. */''}
+    <div class="demo-note">🧪 ${esc(t('demoNote'))}</div>
 
     <div class="card codebox reveal" style="margin-bottom:18px">
       <p class="codebox__label">${esc(t('liveCode'))}</p>
       <p class="codebox__code">${esc(code)}</p>
-      <p style="opacity:.7;font-size:14px;font-weight:600">25 students connected</p>
+      <p style="opacity:.7;font-size:14px;font-weight:600">${LIVE_MOCK_STUDENTS} ${esc(t('liveConnected'))}</p>
     </div>
 
     ${liveState.active ? `
@@ -5224,14 +5466,14 @@ function viewLiveTeacher() {
         </div>`;
       }).join('')}
       <div style="display:flex;gap:10px;margin-top:16px;flex-wrap:wrap">
-        <button class="btn btn--ghost" id="nextQ" style="font-size:15px;padding:10px 18px">Next question →</button>
+        <button class="btn btn--ghost" id="nextQ" style="font-size:15px;padding:10px 18px">${esc(t('next'))} →</button>
         <button class="btn btn--ghost" id="endSession" style="font-size:15px;padding:10px 18px;color:var(--rose)">${esc(t('endSession'))}</button>
       </div>
     </div>` : `
     <div class="card reveal" style="text-align:center;padding:32px">
       <div style="font-size:52px">📡</div>
-      <h3 style="font-size:22px;margin-top:12px">Ready to go live?</h3>
-      <p class="muted" style="font-weight:600;margin-top:6px;margin-bottom:20px">Students join with the code above</p>
+      <h3 style="font-size:22px;margin-top:12px">${esc(t('liveReadyTitle'))}</h3>
+      <p class="muted" style="font-weight:600;margin-top:6px;margin-bottom:20px">${esc(t('liveReadySub'))}</p>
       <button class="btn btn--violet" id="startSession">${esc(t('startSession'))}</button>
     </div>`}
   </div>`;
@@ -5241,6 +5483,7 @@ function viewLiveStudent() {
   if (!liveState.active) {
     return `<div class="view">
       <div class="sec-head"><h2>${esc(t('live'))}</h2><p>${esc(t('liveSub'))}</p></div>
+      <div class="demo-note">🧪 ${esc(t('demoNote'))}</div>
       <div class="card reveal" style="text-align:center;padding:32px">
         <div style="font-size:52px;margin-bottom:14px">📡</div>
         <h3 style="font-size:22px;margin-bottom:16px">${esc(t('liveCode'))}</h3>
@@ -5252,7 +5495,8 @@ function viewLiveStudent() {
 
   const q = LIVE_QUESTIONS[liveState.qIndex % LIVE_QUESTIONS.length];
   return `<div class="view">
-    <div class="sec-head"><h2>📡 Live · ${esc(liveState.code)}</h2><p>25 students here</p></div>
+    <div class="sec-head"><h2>📡 Live · ${esc(liveState.code)}</h2><p>${LIVE_MOCK_STUDENTS} ${esc(t('liveHere'))}</p></div>
+    <div class="demo-note">🧪 ${esc(t('demoNote'))}</div>
     ${liveState.answered ? `
     <div class="card reveal" style="text-align:center;padding:32px">
       <div style="font-size:52px">✅</div>
@@ -5281,7 +5525,7 @@ function afterLive() {
   const joinBtn = $('#joinLiveBtn');
   if (joinBtn) joinBtn.onclick = () => {
     const v = ($('#liveCodeInput').value||'').toUpperCase().replace(/[^A-Z0-9]/g,'');
-    if (v.length < 4) { toast('Enter a valid session code'); haptic(60); return; }
+    if (v.length < 4) { toast(t('liveCodeErr')); haptic(60); return; }
     liveState.active = true; liveState.code = v; liveState.answered = false; render();
   };
   document.querySelectorAll('[data-live]').forEach(b => {
@@ -5313,8 +5557,8 @@ function viewMagic() {
           <p class="magic-card__desc">${esc(L(m.d))}</p>
           ${m.fields.map(f => `
             <div class="field">
-              <label>${esc(L(f.label))}</label>
-              <input class="input" data-magicfield="${m.key}:${f.k}" placeholder="${esc(L(f.ph))}"/>
+              <label for="magic-${m.key}-${f.k}">${esc(L(f.label))}</label>
+              <input class="input" id="magic-${m.key}-${f.k}" data-magicfield="${m.key}:${f.k}" placeholder="${esc(L(f.ph))}"/>
             </div>`).join('')}
           <button class="btn btn--violet btn--block" data-magicgen="${m.key}">✨ ${esc(t('generate'))}</button>
           <div id="magicOut-${m.key}"></div>
@@ -5335,8 +5579,8 @@ function afterMagic() {
       slot.innerHTML = `<div class="magic-out">${esc(output)}</div>
         <button class="btn btn--ghost btn--block" style="margin-top:8px" data-magiccopy="${key}">📋 ${esc(t('copy'))}</button>`;
       slot.querySelector('[data-magiccopy]').onclick = () => {
-        try { navigator.clipboard.writeText(output); } catch {}
-        toast(t('copied')); haptic();
+        haptic();
+        copyText(output).then(ok => toast(ok ? t('copied') : '⚠️ ' + t('copyFailed')));
       };
       haptic(15); toast('✨ ' + t('generate'));
     };
@@ -5401,7 +5645,7 @@ function upskillQuizView() {
   const q = mod.quiz[upskillQuizState.i];
   return `<div class="view">
     <div class="quiz__prog">
-      <button class="icon-btn" id="upskillBack">←</button>
+      <button class="icon-btn" id="upskillBack" aria-label="${esc(t('backStep'))}">←</button>
       <div style="flex:1"><div class="bar bar--thin"><div class="bar__fill" style="width:${(upskillQuizState.i/mod.quiz.length)*100}%"></div></div></div>
       <span class="chip">${upskillQuizState.i+1}/${mod.quiz.length}</span>
     </div>
@@ -5521,7 +5765,7 @@ function viewPrincipal() {
            </div>`
         : `<div class="tbl__scroll"><table class="tbl">
         <thead><tr>
-          <th>${esc(t('allClasses'))}</th><th>${liveClasses ? esc(t('classGroupLabel')) : 'Teacher'}</th><th>${esc(t('students'))}</th>
+          <th>${esc(t('allClasses'))}</th><th>${esc(liveClasses ? t('classGroupLabel') : t('colTeacher'))}</th><th>${esc(t('students'))}</th>
           <th>${liveClasses ? esc(t('avgLevel')) : esc(t('avgXp'))}</th><th>${liveClasses ? esc(t('activeThisWeek')) : esc(t('activeToday'))}</th>
         </tr></thead>
         <tbody>
@@ -5563,7 +5807,7 @@ function viewPrincipal() {
     ${sv && sv.upskill ? `<p class="muted" style="font-weight:700;font-size:13.5px;margin:-6px 0 12px">☁️ ${sv.upskill.modulesDone}/${sv.upskill.modulesTotal} ${esc(t('modulesComplete'))} · ${sv.upskill.teachers} ${esc(t('teachersLabel'))}</p>` : ''}
     <div class="card reveal" style="padding:6px;margin-bottom:22px">
       <div class="tbl__scroll"><table class="tbl">
-        <thead><tr><th>Teacher</th><th>${esc(t('upskillProgress'))}</th><th>Magic tool uses</th></tr></thead>
+        <thead><tr><th>${esc(t('colTeacher'))}</th><th>${esc(t('upskillProgress'))}</th><th>${esc(t('colMagicUses'))}</th></tr></thead>
         <tbody>
           ${SCHOOL_DATA.teachers.map(tt => `<tr>
             <td><span style="font-weight:700">${esc(tt.name)}</span></td>
@@ -5826,7 +6070,7 @@ function schoolReportDoc() {
 
       <h3>${esc(t('classBreakdown'))}</h3>
       <div class="tbl__scroll"><table class="tbl">
-        <thead><tr><th>Class</th><th>Teacher</th><th>Students</th><th>Active</th><th>Coverage</th></tr></thead>
+        <thead><tr><th>${esc(t('colClass'))}</th><th>${esc(t('colTeacher'))}</th><th>${esc(t('colStudents'))}</th><th>${esc(t('colActive'))}</th><th>${esc(t('colCoverage'))}</th></tr></thead>
         <tbody>
           ${SCHOOL_DATA.classes.map(c => {
             const cov = COVERAGE.find(x => x.cls === c.name);
@@ -5940,7 +6184,7 @@ function viewParentHome() {
     <div class="card no-print" style="margin-bottom:16px">
       <p style="font-size:13px;font-weight:900;letter-spacing:1px;text-transform:uppercase;color:var(--dim);margin-bottom:10px">📱 ${esc(t('waSend'))}</p>
       <div class="field" style="margin-bottom:10px">
-        <label>${esc(t('waNumberLabel'))}</label>
+        <label for="waNumber">${esc(t('waNumberLabel'))}</label>
         <input class="input" id="waNumber" type="tel" inputmode="tel" placeholder="${esc(t('waNumberPh'))}" autocomplete="off"/>
         <p class="field__hint">${esc(t('waNumberHint'))}</p>
       </div>
@@ -6110,7 +6354,7 @@ function parentReportDoc(studentName) {
     <div class="card no-print" style="margin-bottom:16px">
       <p style="font-size:13px;font-weight:900;letter-spacing:1px;text-transform:uppercase;color:var(--dim);margin-bottom:10px">📱 ${esc(t('waSend'))}</p>
       <div class="field" style="margin-bottom:10px">
-        <label>${esc(t('waNumberLabel'))}</label>
+        <label for="waNumber">${esc(t('waNumberLabel'))}</label>
         <input class="input" id="waNumber" type="tel" inputmode="tel" placeholder="${esc(t('waNumberPh'))}" autocomplete="off"/>
         <p class="field__hint">${esc(t('waNumberHint'))}</p>
       </div>
@@ -6181,6 +6425,11 @@ function afterReports() {
 function viewJourney() {
   return `<div class="view">
     <div class="sec-head"><h2>${esc(t('journey'))}</h2><p>${esc(t('journeySub'))}</p></div>
+    ${/* Every sparkline here is SCHOOL_DATA.classes[].trend — a hand-written
+          array. There is no live path for this view at all, so unlike the
+          teacher and principal dashboards it has no signed-in variant to
+          check for. */''}
+    <div class="demo-note">🧪 ${esc(t('demoNote'))}</div>
     <div class="stagger">
       ${SCHOOL_DATA.classes.map((c, i) => {
         const max = Math.max(...c.trend);
@@ -6273,9 +6522,17 @@ function onbRole() {
       <button class="pick ${onbDraft.role === 'parent' ? 'on' : ''}" data-role="parent"><em>👪</em>${esc(t('parent_r'))}</button>
     </div>
     <div class="field" style="margin-top:18px">
-      <label>${esc(t('whatsYourName'))}</label>
+      <label for="onbName">${esc(t('whatsYourName'))}</label>
       <input class="input" id="onbName" value="${esc(onbDraft.name)}" placeholder="${esc(S.locale === 'hi' ? 'आपका नाम' : 'Your name')}" autocomplete="given-name"/>
       <p class="field__err" id="nameErr"></p>
+    </div>
+    <!-- The first thing this app asks for is a child's name, so it is also
+         the first place it owes them an answer about where that name goes.
+         Said here rather than buried in a policy page nobody opens, and said
+         plainly enough for a twelve-year-old — the same sentence is repeated
+         verbatim in Profile beside the export button. -->
+    <div class="notice-box" style="margin-bottom:16px;text-align:left">
+      <span class="notice-box__icon">🔒</span><span>${esc(t('privacyLocal'))}</span>
     </div>
     <button class="btn btn--violet btn--block" id="onbNext">${esc(t('continue'))}</button>
     <div style="text-align:center;margin-top:14px">
@@ -6554,7 +6811,10 @@ function wireGlobal() {
         // "Start over" wipes the device. Leaving a signed-in token behind
         // would let the next boot hydrate all of it straight back.
         forceSignOut(false);
-        store.clear(); S = { ...DEFAULTS }; onbStep = 0;
+        // coerceState, not a bare spread: a shallow copy of DEFAULTS aliases
+        // its arrays and objects, so the first toolsSeen.push() after a reset
+        // would write into DEFAULTS itself and leak into the next reset.
+        store.clear(); S = coerceState({ ...DEFAULTS }); onbStep = 0;
         onbDraft = { role: 'student', avatar: 'fox', name: '', code: '', classGroup: 'middle', parentChild: '' };
         liveState = { active: false, code: '', qIndex: 0, answered: false, results: {} };
         quizState = null; upskillQuizState = null;
@@ -6598,6 +6858,50 @@ addEventListener('appinstalled', () => {
   deferredInstallPrompt = null;
   if (currentRoute && currentRoute() === 'profile') render();
 });
+
+/* ===========================================================================
+   STREAK PASS — runs once, before the first render
+   ---------------------------------------------------------------------------
+   The streak on the Home screen was, until this ran, a number that started
+   at 1 and never moved on its own: a guest who opened the app every day for
+   a month and a guest who opened it twice saw the same "🔥 1". That is a
+   claim about the student's habit, printed on their dashboard, that nothing
+   was checking — the one kind of dishonesty this app cannot afford.
+
+   The rule is deliberately the server's rule (nextStreak() in
+   journey.service.ts): same IST day is a no-op, the very next IST day
+   extends the run, any skipped day resets to 1 — never 0, because a student
+   who came back today has a one-day streak, not a zero-day one.
+
+   Signed-in students run this too and then have it overwritten by the
+   server's numbers a moment later, which is correct: the server owns the
+   streak for an account, and this only has to be right for the seconds
+   before hydration lands, and permanently right for a guest.
+   =========================================================================== */
+function runStreakPass() {
+  const today = istDayKey(new Date());
+  const last = S.lastActiveDay;
+
+  if (last === today) return; // already counted today — opening the app twice is one day
+
+  if (last) {
+    const elapsed = daysBetweenKeys(last, today);
+    S.streak = elapsed === 1 ? (Number(S.streak) || 0) + 1 : 1;
+    // Roll the week strip forward by the days that actually passed, so what
+    // it shows is the last seven days and not an ever-accumulating smear.
+    // Clamped at the window length (a gap of a month clears it) and at zero
+    // (a device whose clock moved backwards must not shift the wrong way).
+    const shift = Math.min(WEEK_SLOTS, Math.max(0, Number.isFinite(elapsed) ? elapsed : WEEK_SLOTS));
+    if (shift) S.week = S.week.slice(shift).concat(Array(shift).fill(0));
+  }
+  // A student with no recorded last day keeps whatever streak they had:
+  // this is their first boot on the new field, not a missed day.
+  S.best = Math.max(S.best || 1, S.streak);
+  S.lastActiveDay = today;
+  save();
+}
+
+runStreakPass();
 
 render();
 
