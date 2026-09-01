@@ -21,7 +21,7 @@
    quietly serves a stale build to every returning student.
    =========================================================================== */
 
-const CACHE_VERSION = 'voldebug-v6';
+const CACHE_VERSION = 'voldebug-v7';
 const SHELL_URL = '/app/';
 
 const PRECACHE = [
@@ -75,8 +75,13 @@ self.addEventListener('fetch', event => {
     event.respondWith(
       fetch(req)
         .then(res => {
-          const copy = res.clone();
-          caches.open(CACHE_VERSION).then(c => c.put(SHELL_URL, copy));
+          // Only a real, successful same-origin document may become the
+          // cached shell — otherwise a mistyped URL's 404 page would be
+          // served as "the app" on every later offline open.
+          if (res.ok && res.status === 200 && res.type === 'basic') {
+            const copy = res.clone();
+            caches.open(CACHE_VERSION).then(c => c.put(SHELL_URL, copy));
+          }
           return res;
         })
         .catch(() => caches.match(SHELL_URL))
