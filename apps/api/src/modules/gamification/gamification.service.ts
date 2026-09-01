@@ -86,6 +86,34 @@ export async function awardXP(
   };
 }
 
+// Award the once-per-day login XP (10 XP, CLAUDE.md §4.7). Idempotent:
+// checks for an existing DAILY_LOGIN transaction since UTC midnight —
+// the same day boundary the streak system uses.
+export async function awardDailyLoginXP(userId: string): Promise<void> {
+  const startOfDay = new Date();
+  startOfDay.setUTCHours(0, 0, 0, 0);
+
+  const already = await prisma.xPTransaction.findFirst({
+    where: { userId, source: "DAILY_LOGIN", createdAt: { gte: startOfDay } },
+    select: { id: true },
+  });
+  if (already) return;
+
+  await awardXP(userId, 10, "DAILY_LOGIN");
+}
+
+// Award the one-time first-tool-use XP (20 XP, CLAUDE.md §4.7).
+// Idempotent: at most one FIRST_TOOL_USE transaction per user, ever.
+export async function awardFirstToolUseXP(userId: string): Promise<void> {
+  const already = await prisma.xPTransaction.findFirst({
+    where: { userId, source: "FIRST_TOOL_USE" },
+    select: { id: true },
+  });
+  if (already) return;
+
+  await awardXP(userId, 20, "FIRST_TOOL_USE");
+}
+
 // ─── Streak System ────────────────────────────────────────────────────
 
 export async function updateStreak(userId: string): Promise<number> {
@@ -145,21 +173,31 @@ export async function updateStreak(userId: string): Promise<number> {
 
 // ─── Badge Evaluation ─────────────────────────────────────────────────
 
+// Condition keys implemented here MUST stay in sync with the badges
+// seeded in prisma/seed-tools-and-badges.ts.
 export async function evaluateBadges(userId: string): Promise<string[]> {
   const earned: string[] = [];
-
-  // Get user stats
-  const xpTransactions = await prisma.xPTransaction.findMany({
-    where: { userId },
-    select: { amount: true },
-  });
-  const totalXP = xpTransactions.reduce((sum, t) => sum + t.amount, 0);
 
   const submissionCount = await prisma.submission.count({
     where: { studentId: userId, deletedAt: null },
   });
 
   const streak = await prisma.streak.findUnique({ where: { userId } });
+
+  // AI Activity Log stats (AuditLog = the student-facing AI interaction
+  // log, not SecurityAuditLog). Drives used_5_tools / logged_10_ai /
+  // clean_20_ai.
+  const aiLogCount = await prisma.auditLog.count({
+    where: { studentId: userId },
+  });
+  const flaggedLogCount = await prisma.auditLog.count({
+    where: { studentId: userId, isFlagged: true },
+  });
+  const distinctTools = await prisma.auditLog.groupBy({
+    by: ["toolUsed"],
+    where: { studentId: userId },
+  });
+  const distinctToolCount = distinctTools.length;
 
   // Get all active badge definitions
   const badges = await prisma.badge.findMany({
@@ -181,23 +219,23 @@ export async function evaluateBadges(userId: string): Promise<string[]> {
     let meetsCondition = false;
 
     switch (badge.conditionKey) {
-      case "first_submission":
+      case "first_assignment":
         meetsCondition = submissionCount >= 1;
         break;
-      case "ten_submissions":
-        meetsCondition = submissionCount >= 10;
+      case "used_5_tools":
+        meetsCondition = distinctToolCount >= 5;
         break;
-      case "first_tool_use":
-        meetsCondition = false;
-        break;
-      case "seven_day_streak":
+      case "streak_7":
         meetsCondition = (streak?.currentStreak || 0) >= 7;
         break;
-      case "xp_milestone_500":
-        meetsCondition = totalXP >= 500;
+      case "rank_1":
+        meetsCondition = await isTopOfClassLeaderboard(userId);
         break;
-      case "xp_milestone_1000":
-        meetsCondition = totalXP >= 1000;
+      case "logged_10_ai":
+        meetsCondition = aiLogCount >= 10;
+        break;
+      case "clean_20_ai":
+        meetsCondition = aiLogCount >= 20 && flaggedLogCount === 0;
         break;
     }
 
@@ -209,12 +247,68 @@ export async function evaluateBadges(userId: string): Promise<string[]> {
           progressCount: badge.requiredCount,
         },
       });
+      // Badges carry an XP reward (CLAUDE.md §4.7). Written directly —
+      // going through awardXP() here would recurse back into
+      // evaluateBadges().
+      if (badge.xpReward > 0) {
+        await prisma.xPTransaction.create({
+          data: {
+            userId,
+            amount: badge.xpReward,
+            source: "BADGE_EARNED",
+          },
+        });
+        emitToUser(userId, "xp:updated", {
+          totalXP: undefined, // client refetches
+          xpGained: badge.xpReward,
+          source: "BADGE_EARNED",
+        });
+      }
       earned.push(badge.name);
       emitToUser(userId, "badge:earned", { badgeId: badge.id, name: badge.name });
     }
   }
 
   return earned;
+}
+
+// True when the user currently holds the #1 XP total in any class they
+// belong to (needs at least one other member, so a class of one doesn't
+// hand out Top Scholar).
+async function isTopOfClassLeaderboard(userId: string): Promise<boolean> {
+  const memberships = await prisma.classMember.findMany({
+    where: { userId },
+    select: { classId: true },
+  });
+
+  for (const { classId } of memberships) {
+    const members = await prisma.classMember.findMany({
+      where: { classId },
+      select: { userId: true },
+    });
+    if (members.length < 2) continue;
+
+    const memberIds = members.map((m) => m.userId);
+    const xpGroups = await prisma.xPTransaction.groupBy({
+      by: ["userId"],
+      _sum: { amount: true },
+      where: { userId: { in: memberIds } },
+    });
+
+    let topUserId: string | null = null;
+    let topXP = 0;
+    for (const g of xpGroups) {
+      const xp = g._sum.amount || 0;
+      if (xp > topXP) {
+        topXP = xp;
+        topUserId = g.userId;
+      }
+    }
+
+    if (topUserId === userId && topXP > 0) return true;
+  }
+
+  return false;
 }
 
 // ─── Daily Challenge ──────────────────────────────────────────────────
@@ -312,20 +406,9 @@ export async function completeDailyChallenge(
     },
   });
 
-  // Award XP
-  await prisma.xPTransaction.create({
-    data: {
-      userId,
-      amount: xpAmount,
-      source: "DAILY_CHALLENGE",
-    },
-  });
-
-  emitToUser(userId, "xp:updated", {
-    totalXP: undefined, // client will refetch
-    xpGained: xpAmount,
-    source: "DAILY_CHALLENGE",
-  });
+  // Award XP through the canonical path — transaction record, streak
+  // update, badge evaluation, and Socket.io emits all happen in awardXP.
+  await awardXP(userId, xpAmount, "DAILY_CHALLENGE");
 
   return {
     id: updated.id,

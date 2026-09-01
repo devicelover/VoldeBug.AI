@@ -1,7 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { useTool } from "@web/hooks/use-tools";
+import { useTool, useTrackToolUsage } from "@web/hooks/use-tools";
 import { GradientMesh } from "@web/components/ui/background";
 import {
   ArrowLeft,
@@ -42,6 +42,7 @@ const GENERIC_TIPS = [
 
 export default function ToolDetailPage({ params }: { params: { id: string } }) {
   const { data: tool, isLoading, isError } = useTool(params.id);
+  const trackUsage = useTrackToolUsage();
 
   if (isError) {
     return (
@@ -148,6 +149,7 @@ export default function ToolDetailPage({ params }: { params: { id: string } }) {
                     href={openUrl}
                     target="_blank"
                     rel="noopener noreferrer"
+                    onClick={() => trackUsage.mutate(t.id)}
                     className="flex items-center gap-2 rounded-xl px-5 py-2.5 text-sm font-semibold text-white shadow-lg transition-all hover:opacity-90"
                     style={{
                       backgroundColor: color,

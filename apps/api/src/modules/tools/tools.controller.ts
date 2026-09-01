@@ -1,6 +1,7 @@
 import type { Request, Response } from "express";
 import { prisma } from "../../utils/prisma.js";
 import { apiSuccess, apiError } from "../../utils/api.js";
+import { awardFirstToolUseXP } from "../gamification/gamification.service.js";
 
 export async function handleListTools(req: Request, res: Response) {
   try {
@@ -48,5 +49,29 @@ export async function handleGetTool(req: Request, res: Response) {
     return apiSuccess(res, tool);
   } catch {
     return apiError(res, { code: "INTERNAL_ERROR", message: "Failed to fetch tool", status: 500 });
+  }
+}
+
+// Bump usageCount when a student actually opens the tool ("Open Tool"
+// CTA on the detail page). Mirrors POST /prompts/:id/use.
+export async function handleTrackToolUsage(req: Request, res: Response) {
+  try {
+    const { id } = req.params;
+    await prisma.tool.update({
+      where: { id },
+      data: { usageCount: { increment: 1 } },
+    });
+
+    // First-ever tool open earns 20 XP (idempotent inside the helper).
+    // Fire-and-forget — XP must not delay or fail the tracking call.
+    if (req.userRole === "STUDENT") {
+      awardFirstToolUseXP(req.userId!).catch((err) =>
+        console.error(`[tools] first-tool-use XP failed: ${err}`),
+      );
+    }
+
+    return apiSuccess(res, { id });
+  } catch {
+    return apiError(res, { code: "NOT_FOUND", message: "Tool not found", status: 404 });
   }
 }

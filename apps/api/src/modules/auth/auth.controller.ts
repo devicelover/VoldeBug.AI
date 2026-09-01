@@ -4,6 +4,22 @@ import { apiSuccess, apiError } from "../../utils/api.js";
 import { generateToken } from "../../utils/jwt.js";
 import { logger } from "../../middleware/requestLogger.js";
 import { audit, AUDIT } from "../audit/audit.service.js";
+import { awardDailyLoginXP } from "../gamification/gamification.service.js";
+
+// Fire-and-forget: daily login XP must never block or fail a request.
+// Called from /me (hit on every authenticated app load) so long-lived
+// sessions earn daily XP without re-logging-in — login handlers alone
+// would miss users who stay signed in across days. Idempotent per UTC
+// day inside the helper, so frequent /me calls are safe (one indexed
+// findFirst each). Students only — teacher/admin XP would pollute
+// nothing today (they aren't class members) but there's no reason to
+// write it either.
+function grantDailyLoginXP(user: { id: string; role: string }) {
+  if (user.role !== "STUDENT") return;
+  awardDailyLoginXP(user.id).catch((err) =>
+    logger.error(`Daily login XP failed for ${user.id}: ${err}`),
+  );
+}
 
 export async function handleRegister(req: Request, res: Response) {
   try {
@@ -50,6 +66,7 @@ export async function handleLogin(req: Request, res: Response) {
       actorRole: user.role,
       targetUserId: user.id,
     });
+    grantDailyLoginXP(user);
     return apiSuccess(res, user);
   } catch (err) {
     return apiError(res, {
@@ -106,6 +123,7 @@ export async function handleMe(req: Request, res: Response) {
         status: 404,
       });
     }
+    grantDailyLoginXP(user);
     return apiSuccess(res, user);
   } catch (err) {
     return apiError(res, {
@@ -136,6 +154,7 @@ export async function handleProviderLogin(req: Request, res: Response) {
       role: user.role,
     });
 
+    grantDailyLoginXP(user);
     return apiSuccess(res, { ...user, token });
   } catch (err) {
     logger.error(`Provider login error: ${err}`);

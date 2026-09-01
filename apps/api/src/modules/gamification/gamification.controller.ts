@@ -4,9 +4,6 @@ import { apiSuccess, apiError } from "../../utils/api.js";
 import {
   completeDailyChallenge,
   getDailyChallenge,
-  awardXP,
-  evaluateBadges,
-  updateStreak,
 } from "./gamification.service.js";
 
 export async function handleDailyChallenge(req: Request, res: Response) {

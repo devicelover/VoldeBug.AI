@@ -6,6 +6,7 @@ import {
   gradeSubmissionSchema,
 } from "./submissions.schema.js";
 import { computeGradeXp } from "./submissions.service.js";
+import { awardXP } from "../gamification/gamification.service.js";
 import { audit, AUDIT } from "../audit/audit.service.js";
 import {
   buildObjectKey,
@@ -86,20 +87,19 @@ export async function handleCreateSubmission(req: Request, res: Response) {
       },
     });
 
-    // Award XP for submission
+    // Award XP for submission. awardXP handles the transaction record,
+    // streak update, badge evaluation, and Socket.io emits (CLAUDE.md §4.7).
     let totalXP = assignment.xpReward || 50;
     if (isEarly) {
       totalXP += assignment.earlyBonus || 25;
     }
 
-    await prisma.xPTransaction.create({
-      data: {
-        userId,
-        amount: totalXP,
-        source: isEarly ? "EARLY_SUBMISSION" : "ASSIGNMENT_SUBMIT",
-        assignmentId,
-      },
-    });
+    await awardXP(
+      userId,
+      totalXP,
+      isEarly ? "EARLY_SUBMISSION" : "ASSIGNMENT_SUBMIT",
+      assignmentId,
+    );
 
     const { createNotification } = await import("../notifications/notifications.service.js");
     const sessionUser = await prisma.user.findUnique({ where: { id: userId } });
@@ -351,14 +351,14 @@ export async function handleGradeSubmission(req: Request, res: Response) {
     });
 
     if (xpAwarded > 0) {
-      await prisma.xPTransaction.create({
-        data: {
-          userId: submission.studentId,
-          amount: xpAwarded,
-          source: "ASSIGNMENT_GRADE",
-          assignmentId: submission.assignmentId,
-        },
-      });
+      // awardXP handles the transaction record, streak update, badge
+      // evaluation, and Socket.io emits for the graded student.
+      await awardXP(
+        submission.studentId,
+        xpAwarded,
+        "ASSIGNMENT_GRADE",
+        submission.assignmentId,
+      );
     }
 
     void audit({
